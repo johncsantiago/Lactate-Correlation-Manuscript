@@ -1,5 +1,5 @@
 ---
-title: "Lactate Correlation Paper: Figure 2"
+title: "Lactate Correlation Paper"
 author: "John Santiago"
 date: "2022-10-11"
 output: html_document
@@ -12,8 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r include = FALSE, message = FALSE}
 
 ##Liver Trait Data 
-LTD= read.csv("https://raw.githubusercontent.com/johncsantiago/Lactate-Correlation-Manuscript/master/Data/LiverTraitData.csv")
-
+LTD= read.csv("/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LiverTraitData.csv")
 ##FunctionalGroups
 FG=c(rep("High.Performance",5),rep("Intermediate.Performance",2),rep("Low.Performance",3))
 names(FG)=c("FV12","LV12","LV13","FV13","LV11","FN11","FN12","LN11","FN13","LN13")
