@@ -57,6 +57,10 @@ trait.cor.p=function(gene.data){
 cor.data=apply(cpm.0H,1,trait.cor)
 cor.p=apply(cpm.0H,1,trait.cor.p)
 
+##write.csv(cpmdata,"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorCpmData.csv")
+##write.csv(cor.data,"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorData.csv")
+##write.csv(cor.p,"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorP.csv")
+
 ```
 
 <br  /><br  /><br  />
