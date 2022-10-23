@@ -29,16 +29,14 @@ colors[colors=="Low.Performance"]="firebrick"
 
 ```{r echo=F}
 
-
-
-x=LTD$time[LTD$libraryID==names(FG)[1]&LTD$time!=0&LTD$time<=6]
-y=LTD$alactate[LTD$libraryID==names(FG)[1]&LTD$time!=0&LTD$time<=6]
+x=LTD$time[LTD$libraryID==paste0(substring(names(FG)[1],1,2),substring(names(FG)[1],4,4))&LTD$time!=0&LTD$time<=6]
+y=LTD$alactate[LTD$libraryID==paste0(substring(names(FG)[1],1,2),substring(names(FG)[1],4,4))&LTD$time!=0&LTD$time<=6]
 plot(x,y, pch=22, bg=colors[1],col="black",ylim=c(min(na.omit(LTD$alactate)),max(na.omit(LTD$alactate))), ylab= "Lactate (mmol/L)", xlab = "Time (Hours)")
 lines(spline(x,y, n = 201,ties = "mean",method="natural"), col = colors[1])
 i=2
 while(i<=length(FG)){
-  x=LTD$time[LTD$libraryID==names(FG)[i]&LTD$time!=0&LTD$time<=6]
-  y=LTD$alactate[LTD$libraryID==names(FG)[i]&LTD$time!=0&LTD$time<=6]
+  x=LTD$time[LTD$libraryID==paste0(substring(names(FG)[i],1,2),substring(names(FG)[i],4,4))&LTD$time!=0&LTD$time<=6]
+  y=LTD$alactate[LTD$libraryID==paste0(substring(names(FG)[i],1,2),substring(names(FG)[i],4,4))&LTD$time!=0&LTD$time<=6]
   points(x,y, pch=22, bg=colors[i],col="black")
   lines(spline(x,y, n = 201,ties = "mean",method="natural"), col = colors[i])
   i=i+1

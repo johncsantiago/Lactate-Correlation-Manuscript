@@ -1,5 +1,5 @@
 ---
-title: "Lactate Correlation Paper"
+title: "Lactate Correlation Paper: Figure 3"
 author: "John Santiago"
 date: "2022-10-11"
 output: html_document
@@ -11,39 +11,283 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r include = FALSE, message = FALSE}
 
+library(edgeR)
+library(gplots)
+library(heatmaply)
+
+countdata=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_AllRawCount.csv",row.names=1)
+groups=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_metadata.csv",row.names=1)
+annot =read.csv("https://raw.githubusercontent.com/johncsantiago/SData/master/Apoptosis%20Code/AnnotationData.csv",row.names=1)
+
+##normalize data
+countdata=countdata[,row.names(groups)]
+x <- countdata
+group <- factor(groups$Group)
+y <- DGEList(counts=x,group=group)
+keep <- filterByExpr(y)
+y <- y[keep,,keep.lib.sizes=FALSE]
+z <- calcNormFactors(y, method = "TMM")
+##normalized cpm
+cpmdata=cpm(z)
+
 ##Liver Trait Data 
 LTD= read.csv("/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LiverTraitData.csv")
 ##FunctionalGroups
-FG=c(rep("High.Performance",5),rep("Intermediate.Performance",2),rep("Low.Performance",3))
+FG=c(rep("Adequate Function",5),rep("Intermediate Function",2),rep("Low Function",3))
 names(FG)=c("FV12","LV12","LV13","FV13","LV11","FN11","FN12","LN11","FN13","LN13")
-colors=FG
-names(colors)=(FG)
-colors[colors=="High.Performance"]="royalblue3"
-colors[colors=="Intermediate.Performance"]="gold"
-colors[colors=="Low.Performance"]="firebrick"
+
+LacData=LTD$alactate
+names(LacData)=LTD$libraryID
+LacData=LacData[LTD$time==3]
+LacData=LacData[paste0(substring(names(FG),1,2),substring(names(FG),4,4))]
+names(LacData)=paste0(substring(names(LacData),1,2),"1",substring(names(LacData),4,4))
+cpm.0H=cpmdata[,names(FG)]
+cpm.0H=cpm.0H[apply(cpm.0H,1,sum)>0,]
+
+trait.cor=function(gene.data){
+  calc.cor=cor.test(LacData,gene.data)
+  return(calc.cor[[4]])
+}
+
+trait.cor.p=function(gene.data){
+  calc.cor=cor.test(LacData,gene.data)
+  return(calc.cor[[3]])
+}
+
+cor.data=apply(cpm.0H,1,trait.cor)
+cor.p=apply(cpm.0H,1,trait.cor.p)
+
+```
+
+<br  /><br  /><br  />
+***Figure 3A***<br  />
+Heatmap of genes that meet positive correlation with lactate criteria<br  />
+```{r echo=F, fig.height=9, fig.width=7}
+
+cpm.cutoff=20
+cor.cutoff=0.8
+sig.cutoff=.05
+pos.or.neg="pos"
+
+##trim for genes that meet cpm.cutoff
+cpm.genes=apply(cpm.0H,1,max)
+cpm.genes=names(cpm.genes[cpm.genes>cpm.cutoff])
+
+##trim for genes that meet sig.cutoff
+sig.genes=names(cor.p)[cor.p<sig.cutoff]
+  
+##trim for genes that meet the cor.cutoff in the right direction
+if(pos.or.neg=="pos"){
+  cor.genes=names(cor.data)[cor.data>cor.cutoff]
+}
+if(pos.or.neg=="neg"){
+  cor.genes=names(cor.data)[cor.data<cor.cutoff]
+}
+  
+cordata=intersect(cpm.genes,intersect(cor.genes,sig.genes))
+
+hmdata = cpm.0H[cordata,]
+hc = hclust(dist(hmdata), "complete")
+hmdata=hmdata[hc$order,]  
+pos.hmdata=t(scale(t(hmdata)))
+
+heatmaply(pos.hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "none",Rowv=F,Colv=F,
+          cexRow = .75, na.color="grey",
+          labRow = annot[row.names(hmdata),"symbol"],
+          labCol = c("AF1","AF2","AF3","AF4","AF5","IF1","IF2","LF1","LF2","LF3"),
+          main="Positively Correlating Genes")
+
+```
+
+
+<br  /><br  /><br  />
+***Figure 3B***<br  />
+Scaled expression of positively correlating genes and lactate levels<br  />
+```{r echo=F, fig.height=7, fig.width=7}
+
+##Positively correlating genes: relative expression, mean rel. expr. and lactate
+geneset=row.names(pos.hmdata)
+mean.scaled=apply(pos.hmdata,2,mean)
+var.scaled=apply(pos.hmdata,2,var)
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and positive correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
+axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=length(geneset)){
+  lines(pos.hmdata[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(LacData,mean.scaled)
+mean.p=cor.test(LacData,mean.scaled)[[3]]
+
+
+  
+par(new=T)
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Pos. Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("firebrick","black",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
 
 
 ```
 
 
-```{r echo=F}
+<br  /><br  /><br  />
+***Figure 3C***<br  />
+Linear model of mean scaled expression of positively correlating genes and lactate levels<br  />
+```{r echo=F, fig.height=7, fig.width=7}
+##Pos. Cor. Genes
+mean.scaled=apply(pos.hmdata,2,mean)
+
+linearmodel=lm(LacData~mean.scaled)
+R2=cor(LacData,mean.scaled)^2
+plot(y=LacData,x=mean.scaled,type="p",main="Lactate~Mean Scaled Data",xlab="Mean Scaled Data",ylab="Lactate mmol/L",col="black",lwd=2,lty=1)
+abline(a=linearmodel[[1]][1],b=linearmodel[[1]][2],lty=2)
+if(linearmodel[[1]][2]>0){
+  text(x=(min(mean.scaled)+(max(mean.scaled)-min(mean.scaled))*.25),y=max(LacData)*.9,
+       labels=paste("lm=",signif(linearmodel[[1]][2],3),"x + ",signif(linearmodel[[1]][1],3), "\nR^2 = ",signif(R2,3),sep=""))
+}
+
+if(linearmodel[[1]][2]<0){
+  text(x=(min(mean.scaled)+(max(mean.scaled)-min(mean.scaled))*.75),y=max(LacData)*.9,
+       labels=paste("lm=",signif(linearmodel[[1]][2],3),"x + ",signif(linearmodel[[1]][1],3), "\nR^2 = ",signif(R2,3),sep=""))
+}
+```
+
+<br  /><br  /><br  />
+***Figure 3D***<br  />
+Heatmap of genes that meet positive correlation with lactate criteria<br  />
+```{r echo=F, fig.height=9, fig.width=7}
+
+cpm.cutoff=20
+cor.cutoff=0.8
+sig.cutoff=.05
+pos.or.neg="neg"
+
+##trim for genes that meet cpm.cutoff
+cpm.genes=apply(cpm.0H,1,max)
+cpm.genes=names(cpm.genes[cpm.genes>cpm.cutoff])
+
+##trim for genes that meet sig.cutoff
+sig.genes=names(cor.p)[cor.p<sig.cutoff]
+  
+##trim for genes that meet the cor.cutoff in the right direction
+if(pos.or.neg=="pos"){
+  cor.genes=names(cor.data)[cor.data>cor.cutoff]
+}
+if(pos.or.neg=="neg"){
+  cor.genes=names(cor.data)[-cor.data>cor.cutoff]
+}
+  
+cordata=intersect(cpm.genes,intersect(cor.genes,sig.genes))
+
+hmdata = cpm.0H[cordata,]
+hc = hclust(dist(hmdata), "complete")
+hmdata=hmdata[hc$order,]  
+neg.hmdata=t(scale(t(hmdata)))
+heatmaply(neg.hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "none",Rowv=F,Colv=F,
+          cexRow = .5, na.color="grey",
+          labRow = annot[row.names(hmdata),"symbol"],
+          labCol = c("AF1","AF2","AF3","AF4","AF5","IF1","IF2","LF1","LF2","LF3"),
+          main="Negatively Correlating Genes")
+
+```
 
 
+<br  /><br  /><br  />
+***Figure 3E***<br  />
+Scaled expression of negatively correlating genes and lactate levels<br  />
+```{r echo=F, fig.height=7, fig.width=7}
 
-x=LTD$time[LTD$libraryID==names(FG)[1]&LTD$time!=0&LTD$time<=6]
-y=LTD$alactate[LTD$libraryID==names(FG)[1]&LTD$time!=0&LTD$time<=6]
-plot(x,y, pch=22, bg=colors[1],col="black",ylim=c(min(na.omit(LTD$alactate)),max(na.omit(LTD$alactate))), ylab= "Lactate (mmol/L)", xlab = "Time (Hours)")
-lines(spline(x,y, n = 201,ties = "mean",method="natural"), col = colors[1])
-i=2
-while(i<=length(FG)){
-  x=LTD$time[LTD$libraryID==names(FG)[i]&LTD$time!=0&LTD$time<=6]
-  y=LTD$alactate[LTD$libraryID==names(FG)[i]&LTD$time!=0&LTD$time<=6]
-  points(x,y, pch=22, bg=colors[i],col="black")
-  lines(spline(x,y, n = 201,ties = "mean",method="natural"), col = colors[i])
+##Negatively correlating genes: relative expression, mean rel. expr. and lactate
+geneset=row.names(neg.hmdata)
+mean.scaled=apply(neg.hmdata,2,mean)
+var.scaled=apply(neg.hmdata,2,var)
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and negative correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1.5,1.75))
+axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=length(geneset)){
+  lines(neg.hmdata[i,],col=alpha("lightgrey", 0.6))
   i=i+1
 }
-legend("topright",unique(names(colors)),fill=unique(colors),bty="n",cex=.75)
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(LacData,mean.scaled)
+mean.p=cor.test(LacData,mean.scaled)[[3]]
 
 
+  
+par(new=T)
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
 
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topright",legend=c("Neg. Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("firebrick","black",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+```
+
+<br  /><br  /><br  />
+***Figure 3F***<br  />
+Linear model of mean scaled expression of negatively correlating genes and lactate levels<br  />
+```{r echo=F, fig.height=7, fig.width=7}
+##Neg. Cor. Genes
+mean.scaled=apply(neg.hmdata,2,mean)
+
+linearmodel=lm(LacData~mean.scaled)
+R2=cor(LacData,mean.scaled)^2
+
+plot(y=LacData,x=mean.scaled,type="p",main="Lactate~Mean Scaled Data",xlab="Mean Scaled Data",ylab="Lactate mmol/L",col="black",lwd=2,lty=1)
+abline(a=linearmodel[[1]][1],b=linearmodel[[1]][2],lty=2)
+if(linearmodel[[1]][2]>0){
+  text(x=(min(mean.scaled)+(max(mean.scaled)-min(mean.scaled))*.25),y=max(LacData)*.9,
+       labels=paste("lm=",signif(linearmodel[[1]][2],3),"x + ",signif(linearmodel[[1]][1],3), "\nR^2 = ",signif(R2,3),sep=""))
+}
+
+if(linearmodel[[1]][2]<0){
+  text(x=(min(mean.scaled)+(max(mean.scaled)-min(mean.scaled))*.75),y=max(LacData)*.9,
+       labels=paste("lm=",signif(linearmodel[[1]][2],3),"x + ",signif(linearmodel[[1]][1],3), "\nR^2 = ",signif(R2,3),sep=""))
+}
 ```
