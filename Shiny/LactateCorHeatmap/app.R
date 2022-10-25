@@ -18,11 +18,6 @@ ui <- fillPage(
                                              "Negative" = 2,
                                              "Both" = 3),
                               selected = 1),
-                  
-                  ##conditionalPanel(
-                    ##condition = "input.select == 1",
-                    ##colourInput("H.line.color", "Line Color",
-                                ##"royalblue3",showColour = 'background')),
                     
                   sliderInput("cpm.cutoff", h3("CPM"), min = 0, max = 100, 
                               value = 20, step = 5),
@@ -33,7 +28,6 @@ ui <- fillPage(
                   width = 3),
                 
                 mainPanel(
-                  ##h1("Lactate Correlating Genes"),
                   plotOutput(outputId = "distPlot", height=700, width=600)
                   
                 )
@@ -95,8 +89,6 @@ server <- function(input, output) {
       
       
       hmdata = cordata[order(cor.data[row.names(cordata)]),]
-      ##hc = hclust(dist(hmdata), "complete")
-      ##hmdata=hmdata[hc$order,]  
       hmdata=t(scale(t(hmdata)))
     
       mylmat = rbind(c(4,2),c(3,1))
@@ -110,9 +102,7 @@ server <- function(input, output) {
                 labCol = c("AF1","AF2","AF3","AF4","AF5","IF1","IF2","LF1","LF2","LF3"),
                 key = T, lmat=mylmat, lwid=mylwid, lhei=mylhei)
       
-    }
-    ##, height = 700, width = 900
-    )
+    })
 }
 
 
