@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# [Return to Home Page](https://johncsantiago.github.io/Lactate-Correlation-Project.html)
+
 ```{r include = FALSE, message = FALSE}
 
 ##Liver Trait Data 

@@ -1,0 +1,748 @@
+---
+title: "Lactate Correlation Paper: Nanostring analysis"
+author: "John Santiago"
+date: "2022-11-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+# [Return to Home Page](https://johncsantiago.github.io/Lactate-Correlation-Project.html)
+
+
+## Nanostring Analysis of Lactate Correlation Geneset  
+1. Raw Data
+2. Filtering low count reads  
+A. Determining Which Samples to Exclude  
+B. Determining Which Genes to Exclude  
+3. Compare COV of HKGs to lactate cor. genes  
+A. Normalized nanostring data: comparing the COV for our 5 housekeeping genes to the COV of the genes that remained after excluding false positives  
+B. RNAseq CPM data: comparing the COV for our 5 housekeeping genes to the COV of the genes that remained after excluding false positives  
+C. Normalized nanostring data: Intra-assay COV for LN11 triplicate data
+4. Correlation of detected gene expression levels with 3-hour lactate levels  
+A. Positively correlating genes  
+B. Negatively correlating genes  
+5. Correlation figures for probes that meet all of the threshold criteria  
+A. Heatmap showing relative expression of the gene set detected by nanostring  
+B. Plot showing showing lactate levels for each sample (red) with relative expression (grey) and mean relative expression (black) of the gene set detected by nanostring. error bars are the variance of the mean relative expression data.  
+C. Mean expression between Adequate and Low performing livers for the 7 lactate correlation genes.  
+
+## Summary  
+Of the 10 samples used, one was not usable (LV13) due to an error in sample prep. Another sample (LN11) was analyzed in triplicate to demonstrate the low level of variation between technical replicates. Data was normalized using internal positive controls and calculated in the nSolver software provided by nanostring. Housekeeping genes from the RNAseq data maintained a lower coefficient of variation then the 23 lactate correlation genes assessed. Of these 23 lactate correlation genes, only 12 yielded sufficient data above the false discovery threshold calculated using internal negative controls. Of these 12 genes, only 7 maintained a correlation of .8 with lactate levels as was observed in the RNAseq experiment. 
+
+```{r echo=F, include=FALSE}
+
+library(edgeR)
+library(heatmaply)
+##Clean Trait Data and calculate CPMs
+countdata=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_AllRawCount.csv",row.names=1)
+groups=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_metadata.csv",row.names=1)
+annot =read.csv("https://raw.githubusercontent.com/johncsantiago/SData/master/Apoptosis%20Code/AnnotationData.csv",row.names=1)
+traitData = read.csv("/Users/johncsantiago/Documents/DetailedTraitData.csv")
+nanostringlist=read.csv("/Users/johncsantiago/Downloads/NanostringProbeList.csv",header=T)[,2]
+##write.csv(nanostringlist,"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/NanostringProbeList.csv")
+TPM=read.csv("/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv",row.names=1)
+nsd=read.csv("/Users/johncsantiago/Documents/Lactate Correlation Raw Nanostring Results.csv",row.names=1)
+nsd=nsd[,c(5:17)]
+##colnames(nsd)=substring(colnames(nsd),1,4)
+annot2=t(annot)
+colnames(annot2)=annot2[2,]
+norm.nsd=read.csv("/Users/johncsantiago/Documents/Lactate Correlation Normalized Nanostring Results.csv",row.names=1)
+norm.nsd=norm.nsd[,c(7:19)]
+
+
+##normalize data
+countdata=countdata[,row.names(groups)]
+x <- countdata
+group <- factor(groups$Group)
+y <- DGEList(counts=x,group=group)
+keep <- filterByExpr(y)
+y <- y[keep,,keep.lib.sizes=FALSE]
+z <- calcNormFactors(y, method = "TMM")
+##normalized cpm
+cpmdata=cpm(z)
+allcpmdata=cpm(z)
+
+##library("biomaRt")
+##ensembl_list <- row.names(allcpmdata)
+##human <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+##gene_coords=getBM(attributes=c("hgnc_symbol","ensembl_gene_id", "start_position","end_position"), ##filters="ensembl_gene_id", values=ensembl_list, mart=human)
+##gene_coords$size=gene_coords$end_position - gene_coords$start_position
+##gene.lengths=gene_coords$size
+##names(gene.lengths)=gene_coords$ensembl_gene_id
+##RPKM[1,"FV11"]=(z$counts[1,"FV11"]*1000000000)/(gene.lengths[1]*z$samples["FV11","lib.size"]*z$samples["FV11","norm.factors"])
+##RPKM=(rpkm(z,gene.length=gene.lengths[row.names(z$counts)]))
+##RPKM=RPKM[gene.lengths[row.names(RPKM)]>0,]
+##TPM <- t( t(RPKM) / colSums(na.omit(RPKM)) ) * 1e6
+##TPM=na.omit(TPM)
+##allTPM=TPM
+##write.csv(na.omit(allTPM),"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv")
+
+##Only the 0H samples
+row.names(traitData)=traitData[,"LibraryID"]
+sample.subset=intersect(row.names(traitData),colnames(cpmdata)[substring(colnames(cpmdata),3,3)==1])
+cpmdata=cpmdata[,sample.subset]
+TPM=TPM[,sample.subset]
+traitData=traitData[sample.subset,]
+
+LacData=traitData[,"X3H.alactate"]
+names(LacData)=row.names(traitData)
+LacData=LacData[order(LacData)]
+cpmdata=cpmdata[,names(LacData)]
+cpmdata=cpmdata[apply(cpmdata,1,sum)>0,]
+##calculate correlations
+trait=LacData
+
+trait.cor=function(cpm.gene.data){
+  calc.cor=cor(trait,cpm.gene.data)
+  return(calc.cor)
+}
+trait.cor.p=function(cpm.gene.data){
+  calc.cor=cor.test(trait,cpm.gene.data)
+  return(calc.cor[[3]])
+}
+
+##only genes with correlation greater than .8
+cor.genes=apply(cpmdata,1,trait.cor)
+cor.genes=na.omit(cor.genes[abs(cor.genes)>.8])
+probe.genes=cor.genes
+names(probe.genes)=annot[names(probe.genes),2]
+
+##only genes with cpm over threshold in at least one library
+probe.cpm=cpmdata[names(cor.genes),]
+probe.cpm=probe.cpm[apply(probe.cpm,1,min)>0,]
+
+##only genes with at least a 2 fold difference in expression between high and low performance livers
+probe.group.means=data.frame(High.Performance=apply(probe.cpm[,c("FV12","LV12","LV13","FV13","LV11")],1,mean), Intermediate.Performance=apply(probe.cpm[,c("FN11","FN12")],1,mean), Low.Performance= apply(probe.cpm[,c("LN11","FN13","LN13")],1,mean))
+probe.fcs=log2(probe.group.means[,"High.Performance"]/probe.group.means[,"Low.Performance"])
+names(probe.fcs)=row.names(probe.cpm)
+probe.cpm=probe.cpm[abs(probe.fcs)>1,]
+
+##only genes with at least one library with a TPM greater than 5
+probe.tpm=apply(TPM,1,max)
+probe.cpm=probe.cpm[intersect(row.names(probe.cpm),names(probe.tpm[probe.tpm>5])),]
+
+
+probe.cpm=(annot[row.names(probe.cpm),])
+row.names(probe.cpm)=probe.cpm[,2]
+probe.cpm=probe.cpm[intersect(probe.cpm[,2],nanostringlist),]
+
+
+plotcolors=c("navajowhite3","slategray3","brown2","floralwhite")
+
+```
+
+```{r echo=F}
+temp=cpmdata[probe.cpm[,1],]
+cpm.group.means=data.frame(High.Performance=apply(temp[,c("FV12","LV12","FV13","LV11")],1,mean), 
+                             Intermediate.Performance=apply(temp[,c("FN11","FN12")],1,mean), 
+                             Low.Performance= apply(temp[,c("LN11","FN13","LN13")],1,mean))
+
+row.names(cpm.group.means)=annot[row.names(cpm.group.means),2]
+cpm.FC=signif(cpm.group.means[,"Low.Performance"]/cpm.group.means[,"High.Performance"],2)
+
+##par(mar=c(5, 4, 4, 7))
+##barplot(height=t(probe.group.means),
+##        names.arg = colnames(t(probe.group.means)),
+##        beside=T,col=plotcolors[1:3]
+##        ,border = "black",
+##        main = "Mean Expression Levels For Using Nanostring",
+##        ylab="Number of transcripts detected",
+##        xlab="", las=2, cex.names=.9, ylim=c(0,13000))
+##legend(x=29,y=12000,legend =  c("Adequate\nPerformance","Intermediate \nPerformance","Low\nPerformance"),xpd = T,fill=plotcolors[c(1:3)], y.intersp = 1.75,cex=.9)
+##text(x=c(3,6.5,10.5,14.5,18.5,22.5,26.5),y=c(6000,1500,3000,1000,12500,11500,5000),
+##     label=c(paste0("FC= ",nsd.FC[1]),paste0("FC= ",nsd.FC[2]),
+##             paste0("FC= ",nsd.FC[3]),paste0("FC= ",nsd.FC[4]),
+##             paste0("FC= ",nsd.FC[5]),paste0("FC= ",nsd.FC[6]),
+##             paste0("FC= ",nsd.FC[7])),
+##     cex=.7)
+```
+
+```{r echo=F}
+Biomarkers <- row.names(cpm.group.means)
+Adequate_Performance = cpm.group.means[,1]
+Intermediate_Performance = cpm.group.means[,2]
+Low_Performance = cpm.group.means[,3]
+FC=cpm.FC[Biomarkers]
+data <- data.frame(Biomarkers, Adequate_Performance, Intermediate_Performance, Low_Performance,FC)
+bc=col2rgb(plotcolors)/255
+
+
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~Adequate_Performance, type = 'bar', name = 'Adequate Performance',
+               marker = list(color = rgb(bc[1,1],bc[2,1],bc[3,1]),
+                           line = list(color = "black", width = 1.5)),
+               hovertext = paste("Gene :", Biomarkers,
+                                "<br>Expression :", Adequate_Performance,
+                                "<br>Fold Change :", FC))
+fig <- fig %>% add_trace(y = ~Intermediate_Performance, name = 'Intermediate Performance',
+               marker = list(color = rgb(bc[1,2],bc[2,2],bc[3,2]),
+                           line = list(color = "black", width = 1.5)),
+               hovertext = paste("Gene :", Biomarkers,
+                                "<br>Expression :", Intermediate_Performance,
+                                "<br>Fold Change :", FC))
+fig <- fig %>% add_trace(y = ~Low_Performance, name = 'Low Performance',
+               marker = list(color = rgb(bc[1,3],bc[2,3],bc[3,3]),
+                           line = list(color = "black", width = 1.5)),
+               hovertext = paste("Gene :", Biomarkers,
+                                "<br>Expression :", Low_Performance,
+                                "<br>Fold Change :", FC))
+fig <- fig %>% layout(yaxis = list(title = 'Number of transcripts detected'), 
+                      barmode = 'group')
+
+```
+
+\newpage 
+# Biomarker RNAseq fold change 
+```{r echo=F}
+
+fig
+
+```
+
+
+\newpage 
+# Raw Data
+```{r echo=F, results = 'asis'}
+library(knitr)
+library(kableExtra)
+table.nsd=norm.nsd
+colnames(table.nsd)[12]="Mean LN11"
+kable(norm.nsd) %>% 
+  kable_styling("striped") %>% 
+  scroll_box(width = "100%")
+##library(DT)
+##datatable(table.nsd, fillContainer = T,options = list(dom = 't', autoHideNavigation=T,pageLength=20),style = "height:550px")##%>%##,selection='multiple') %>%##list(mode='row', target='row')) %>%
+        ##formatStyle(colnames(table.nsd), border = '1px solid black')
+
+```
+<br >
+* Positive Controls:
+Each mRNA Expression CodeSet contains probes designed against fourteen ERCC transcript sequences. Six of these sequences are used as positive hybridization controls and eight are designed as negative controls.
+For each positive control, in vitro transcribed RNA targets are pre-mixed with the Reporter CodeSet during manufacturing. Six different transcripts are provided, each at one of the following concentrations in the 30 μL hybridization reaction: 128 fM, 32 fM, 8 fM, 2 fM, 0.5 fM, and 0.125 fM. This range of concentrations corresponds to the expression levels of most mRNAs of interest present in 100 ng of total RNA.
+<br >
+*IMPORTANT* Positive controls only account for variation hybridizaiton and recovery efficiency between lanes, not differences in total mRNA loaded!
+<br ><br >
+* Negative Controls: NanoString includes several probes in each CodeSet for which no target is expected to be present. These negative controls can be used to estimate background values in your experiment, but may not capture minor probe-specific differences in background for every probe in a CodeSet.
+
+
+\newpage  
+# Filtering low count reads  
+Excluding any probes that did not exceed the maximum count observed in the negative controls for that sample. This is the most stringent false discovery identification method suggested by nanostring  
+  
+### **A) Determining Which Samples to Exclude**  
+```{r echo=F}
+
+NC.data=norm.nsd[grep("NEG",row.names(norm.nsd)),]
+NC.thresh=apply(NC.data,2,max)
+gene.data=(norm.nsd[-c(grep("NEG",row.names(norm.nsd)),grep("POS",row.names(norm.nsd))),])
+total.removed=rep(0,ncol(gene.data))
+i=1
+while(i<=ncol(gene.data)){
+  gene.data[gene.data[,i]<=NC.thresh[i],i]=0
+  total.removed[i]=length(gene.data[gene.data[,i]==0,i])
+  i=i+1
+}
+
+barplot(height=total.removed,
+        names.arg = colnames(gene.data),
+        beside=T,
+        main = "Number of Genes Excluded for Low Counts in Each Sample",
+        ylab="Number of Genes",
+        xlab="",
+        las=2)
+
+```
+  
+* Excluding LV13 since none of the reads were greater than the negative control threshold  
+```{r echo=F}
+norm.nsd=norm.nsd[,colnames(norm.nsd)!="LV13"]
+nsd=nsd[,colnames(nsd)!="LV13"]
+cpmdata=cpmdata[,colnames(cpmdata)!="LV13"]
+gene.data=gene.data[,colnames(gene.data)!="LV13"]
+gene.data=gene.data[,nchar(colnames(gene.data))==4]
+```
+\newpage
+### **B. Determining Which Genes to Exclude**  
+```{r echo=F}
+##maximum number of samples that can be excluded for a gene before excluding the gene from the analysis
+probe.keep=2
+probe.data=gene.data[row.names(probe.cpm),nchar(colnames(gene.data))==4]
+
+total.genes.removed=rep(0,nrow(probe.data))
+i=1
+while(i<=nrow(probe.data)){
+  total.genes.removed[i]=length(probe.data[i,probe.data[i,]==0])
+  i=i+1
+}
+
+barplot(height=total.genes.removed,
+        names.arg = row.names(probe.data),
+        beside=T,
+        main = "Number of Samples Excluded for Low Counts in Each Gene",
+        ylab="Number of Genes",
+        xlab="",
+        las=2,
+        ylim=c(0,9),
+        cex.names = .5)
+abline(h=probe.keep,lty=2,col="red")
+
+probe.use=row.names(probe.data)[total.genes.removed<=probe.keep]
+probe.cut=row.names(probe.data)[total.genes.removed>probe.keep]
+```
+  
+* Excluding all genes with more than 2 false positives 
+
+```{r echo=F}
+
+##genes=row.names(probe.data[probe.cut,])
+##nsd.mean=apply(probe.data[genes,],1,mean)
+##cpm.mean=apply(cpmdata[annot2[1,genes],colnames(probe.data)],1,mean)
+##tpm.mean=apply(TPM[annot2[1,genes],colnames(probe.data)],1,mean)
+##data=data.frame(genes,nsd.mean,cpm.mean,tpm.mean)
+##fig <- plot_ly(data, x = ~genes, y = ~nsd.mean, type = 'bar', name = 'NSD Mean',
+##               marker = list(color = rgb(bc[1,1],bc[2,1],bc[3,1]),
+##                           line = list(color = "black", width = 1.5)),
+##               hovertext = paste("Gene :", genes,
+##                                "<br>CPM :", nsd.mean))
+##fig <- fig %>% add_trace(y = ~cpm.mean, name = 'CPM Mean',
+##               marker = list(color = rgb(bc[1,2],bc[2,2],bc[3,2]),
+##                           line = list(color = "black", width = 1.5)),
+##               hovertext = paste("Gene :", genes,
+##                                "<br>CPM :", cpm.mean))
+##fig <- fig %>% add_trace(y = ~tpm.mean, name = 'TPM Mean',
+##               marker = list(color = rgb(bc[1,3],bc[2,3],bc[3,3]),
+##                           line = list(color = "black", width = 1.5)),
+##               hovertext = paste("Gene :", genes,
+##                                "<br>CPM :", tpm.mean))
+##fig <- fig %>% layout(yaxis = list(title = 'Number of transcripts detected'), 
+##                      barmode = 'group')
+##fig
+
+```
+
+
+\newpage  
+
+# Compare COV of HKGs to lactate cor. genes  
+Housekeeping genes should have generally lower coefficients of variation compared to the lactate correlation genes  
+  
+### **A. Normalized nanostring data: comparing the COV for our 5 housekeeping genes to the COV of the genes that remained after excluding false positives**  
+```{r echo=F}
+HKG=norm.nsd[c("ACTB","GAPDH","RPL13A","OAZ1","SERF2"),colnames(cpmdata)]
+Probes=norm.nsd[probe.use,]
+##Probes=norm.nsd[row.names(probe.cpm),]
+HKG.cv=apply(HKG,1,sd)/apply(HKG,1,mean)*100
+Probes.cv=apply(Probes,1,sd)/apply(Probes,1,mean)*100
+
+cv.data=c(HKG.cv,Probes.cv)
+
+reps=norm.nsd[names(cv.data),c("LN11.1","LN11.2","LN11.3")]
+reps.cv=(apply(reps,1,sd)/apply(reps,1,mean))*100
+
+cpm.cv.data=cpmdata[annot2[1,names(cv.data)],]
+row.names(cpm.cv.data)=names(cv.data)
+cpm.cv.data=apply(cpm.cv.data,1,sd)/apply(cpm.cv.data,1,mean)*100
+
+```
+
+```{r echo=F}
+par(mar=c(5, 4, 4, 7.5))
+barplot(height=cv.data,
+        names.arg = names(cv.data),
+        beside=T,col=c(rep(plotcolors[3],5),rep(plotcolors[2],23))
+        ,border = "black",
+        main = "COV for Lactate Cor. Analysis NSD",
+        ylab="Coefficient of Variation",
+        xlab="", las=2, cex.names=.9,
+        ylim=c(0,150))
+##legend(x=20,y=120,legend =  c("HKGs","Probes"),xpd = T,fill=plotcolors[3:2])
+legend(x=22,y=120,legend =  c("HKGs","Probes"),xpd = T,fill=plotcolors[3:2])
+
+
+```
+
+\newpage  
+
+### **B. RNAseq CPM data: comparing the COV for our 5 housekeeping genes to the COV of the genes that remained after excluding false positives**  
+```{r echo=F}
+par(mar=c(5, 4, 4, 7.5))
+barplot(height=cpm.cv.data,
+        names.arg = names(cpm.cv.data),
+        beside=T,col=c(rep(plotcolors[3],5),rep(plotcolors[2],23))
+        ,border = "black",
+        main = "COV for Lactate Cor. Analysis CPM",
+        ylab="Coefficient of Variation",
+        xlab="", las=2, cex.names=.9,
+        ylim=c(0,150))
+##legend(x=20,y=120,legend =  c("HKGs","Probes"),xpd = T,fill=plotcolors[3:2])
+legend(x=35,y=120,legend =  c("HKGs","Probes"),xpd = T,fill=plotcolors[3:2])
+
+
+```
+
+\newpage  
+
+### **C. Normalized nanostring data: Intra-assay COV for LN11 triplicate data**  
+```{r echo=F}
+par(mar=c(5, 4, 4, 7.5))
+barplot(height=reps.cv,
+        names.arg = names(reps.cv),
+        beside=T,col=c(rep(plotcolors[3],5),rep(plotcolors[2],23))
+        ,border = "black",
+        main = "COV for Intra-assay LN11 Replicate Data",
+        ylab="Coefficient of Variation",
+        xlab="", las=2, cex.names=.9,
+        ylim=c(0,150))
+##legend(x=20,y=120,legend =  c("HKGs","Probes"),xpd = T,fill=plotcolors[3:2])
+legend(x=35,y=120,legend =  c("HKGs","Probes"),xpd = T,fill=plotcolors[3:2])
+
+
+```
+
+\newpage  
+
+# Correlation of detected gene expression levels with 3-hour lactate levels  
+Excluding any gene that does not have a correlation of at least .8 between the nanostring data and 3-hour lactate levels  
+  
+### **A. Positively correlating genes**  
+```{r echo=F, include=F}
+
+nsd.trait=LacData[colnames(gene.data)]
+
+nsd.trait.cor=function(nsd.gene.data){
+  calc.cor=cor(nsd.trait,nsd.gene.data)
+  return(calc.cor)
+}
+
+nsd.probe.genes=apply(norm.nsd[,colnames(gene.data)],1,nsd.trait.cor)
+tpm.probe.genes=apply(TPM[,colnames(gene.data)],1,nsd.trait.cor)
+names(tpm.probe.genes)=annot[names(tpm.probe.genes),2]
+pos.geneset=gene.data[intersect(row.names(probe.data),names(probe.genes[probe.genes>0])),]
+
+pos.probe.cor.data=rbind(rbind(probe.genes[row.names(pos.geneset)],nsd.probe.genes[row.names(pos.geneset)]),tpm.probe.genes[row.names(pos.geneset)])
+pos.probe.cor.data=pos.probe.cor.data[,intersect(colnames(pos.probe.cor.data),probe.use)]
+row.names(pos.probe.cor.data)=c("CPM.cor","NSD.cor","TPM.cor")
+
+
+
+```
+
+
+```{r echo=F}
+cor.cutoff=.8
+##cor.cutoff.color=pos.probe.cor.data
+##cor.cutoff.color[,]=plotcolors[4]
+##cor.cutoff.color[1,signif(pos.probe.cor.data[2,],2)>=cor.cutoff]=plotcolors[3]
+##cor.cutoff.color[2,signif(pos.probe.cor.data[2,],2)>=cor.cutoff]=plotcolors[2]
+##cor.cutoff.color[3,signif(pos.probe.cor.data[2,],2)>=cor.cutoff]=plotcolors[1]
+par(mar=c(5, 4, 4, 7.5))
+barplot(height=pos.probe.cor.data,
+        names.arg = colnames(pos.probe.cor.data),
+        beside=T,col=plotcolors[3:1]
+        ,border = "black",
+        main = "",
+        ylab="Correlation Coefficient",
+        xlab="", las=2, cex.names=.9)
+legend(x=34,y=1,legend =  c("CPM Cor.","NSD Cor.","TPM Cor."),xpd = T,fill=plotcolors[c(3:1)])
+abline(h=cor.cutoff,lty=2)
+pos.probe.cor=colnames(pos.probe.cor.data)[signif(pos.probe.cor.data[2,],2)>=cor.cutoff]
+
+```
+<br >*Note: GSTA1 is only able to meet the cutoff when rounded. (r= 0.7977059)*  
+
+\newpage  
+
+### **B. Negatively correlating genes**  
+
+```{r echo=F}
+
+neg.geneset=gene.data[intersect(row.names(probe.data),names(probe.genes[probe.genes<0])),]
+
+neg.probe.cor.data=rbind(rbind(probe.genes[row.names(neg.geneset)],nsd.probe.genes[row.names(neg.geneset)]),tpm.probe.genes[row.names(neg.geneset)])
+row.names(neg.probe.cor.data)=c("CPM.cor","NSD.cor","TPM.cor")
+```
+
+```{r echo=F}
+
+##cor.cutoff=.8
+##cor.cutoff.color=neg.probe.cor.data
+##cor.cutoff.color[,]=plotcolors[4]
+##cor.cutoff.color[1,abs(neg.probe.cor.data[2,])>=cor.cutoff]=plotcolors[3]
+##cor.cutoff.color[2,abs(neg.probe.cor.data[2,])>=cor.cutoff]=plotcolors[2]
+##cor.cutoff.color[3,abs(neg.probe.cor.data[2,])>=cor.cutoff]=plotcolors[1]
+par(mar=c(5, 4, 4, 7.5))
+barplot(height=abs(neg.probe.cor.data),
+        names.arg = colnames(neg.probe.cor.data),
+        beside=T,col=plotcolors[3:1]
+        ,border = "black",
+        main = "",
+        ylab="abs(Correlation Coefficient)",
+        xlab="", las=2, cex.names=.9)
+legend(x=17,y=1,legend =  c("CPM Cor.","NSD Cor.","TPM Cor."),xpd = T,fill=plotcolors[c(3:1)])
+abline(h=cor.cutoff,lty=2)
+neg.probe.cor=colnames(neg.probe.cor.data)[abs(signif(neg.probe.cor.data[2,],2))>=cor.cutoff]
+
+```
+<br >*There are 7 genes that meet the correlation cutoff of .8 that was previously used with the RNAseq data results. All of these genes positively correlated with lactate, with no negatively correlating genes having sufficient levels of correlation. Alternatively, setting the cutoff more leniently to .65 would still only yield a total of 10 genes which would include a single negatively correlating gene*
+  
+\newpage  
+# Correlation figures for probes that meet all of the threshold criteria  
+* Expression levels greater than the max level for the negative control in the specific sample  
+* Correlation of at least .8 in RNAseq and nanostring data  
+  
+### **A. Heatmap showing relative expression of the gene set detected by nanostring**  
+```{r echo=F}
+pos.geneset=gene.data[pos.probe.cor,]
+pos.geneset=norm.nsd[pos.probe.cor,]
+
+i=1
+while(i<=nrow(pos.geneset)){
+  pos.geneset[i,pos.geneset[i,]==0]=NA
+  i=i+1
+}
+
+nsd.lacdata=na.omit(LacData[colnames(norm.nsd)])
+nsd.lacdata=nsd.lacdata[order(nsd.lacdata)]
+pos.geneset=pos.geneset[,names(nsd.lacdata)]
+##nsd.FG=FG[names(nsd.lacdata)]
+hmdata = pos.geneset
+##hc = hclust(dist(hmdata), "complete")
+##hmdata=hmdata[hc$order,]  
+pos.nsd=t(scale(t(hmdata)))
+```
+
+```{r echo=F}
+heatmaply(pos.nsd,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "none",Rowv=F,Colv=F,
+          cexRow = .75, na.value="black",
+          labRow = row.names(hmdata),
+          ##labCol = c("AF1","AF2","AF3","AF4","IF1","IF2","LF1","LF2","LF3"),
+          main="Positively Correlating Genes")
+
+```
+
+\newpage  
+
+### **B. Plot showing showing lactate levels for each sample (red) with relative expression (grey) and mean relative expression (black) of the gene set detected by nanostring. error bars are the variance of the mean relative expression data.**  
+```{r echo=F}
+mean.scaled=rep(0,ncol(pos.nsd))
+var.scaled=rep(0,ncol(pos.nsd))
+i=1
+while(i<=ncol(pos.nsd)){
+  mean.scaled[i]=mean(na.omit(pos.nsd[,i]))
+  var.scaled[i]=var(na.omit(pos.nsd[,i]))
+  i=i+1
+}
+##mean.scaled=apply(pos.nsd,2,mean)
+##var.scaled=apply(pos.nsd,2,var)
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(nsd.lacdata))),x=1:length(nsd.lacdata),type="l",main="Lactate levels and correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
+axis(side=1, at=1:length(nsd.lacdata), labels=names(nsd.lacdata), cex.axis=1,las=2)
+
+i=1
+while(i<=nrow(pos.geneset)){
+  lines(pos.nsd[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(nsd.lacdata,mean.scaled)
+mean.p=cor.test(nsd.lacdata,mean.scaled)[[3]]
+
+
+  
+par(new=T)
+plot(y=nsd.lacdata,x=1:length(nsd.lacdata),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+
+
+```
+
+\newpage  
+
+### **C. Mean expression between Adequate and Low performing livers for the 7 lactate correlation genes.**  
+```{r echo=F}
+
+probe.group.means=data.frame(High.Performance=apply(pos.geneset[,c("FV12","LV12","FV13","LV11")],1,mean), 
+                             Intermediate.Performance=apply(pos.geneset[,c("FN11","FN12")],1,mean), 
+                             Low.Performance= apply(pos.geneset[,c("LN11","FN13","LN13")],1,mean))
+probe.group.means["GSTA2",1]=mean(na.omit(as.numeric(pos.geneset["GSTA2",c("FV12","LV12","FV13","LV11")])))
+
+nsd.FC=signif(probe.group.means[,"Low.Performance"]/probe.group.means[,"High.Performance"],2)
+names(nsd.FC)=row.names(probe.group.means)
+
+##par(mar=c(5, 4, 4, 7))
+##barplot(height=t(probe.group.means),
+##        names.arg = colnames(t(probe.group.means)),
+##        beside=T,col=plotcolors[1:3]
+##        ,border = "black",
+##        main = "Mean Expression Levels For Using Nanostring",
+##        ylab="Number of transcripts detected",
+##        xlab="", las=2, cex.names=.9, ylim=c(0,13000))
+##legend(x=29,y=12000,legend =  c("Adequate\nPerformance","Intermediate \nPerformance","Low\nPerformance"),xpd = T,fill=plotcolors[c(1:3)], y.intersp = 1.75,cex=.9)
+##text(x=c(3,6.5,10.5,14.5,18.5,22.5,26.5),y=c(6000,1500,3000,1000,12500,11500,5000),
+##     label=c(paste0("FC= ",nsd.FC[1]),paste0("FC= ",nsd.FC[2]),
+##             paste0("FC= ",nsd.FC[3]),paste0("FC= ",nsd.FC[4]),
+##             paste0("FC= ",nsd.FC[5]),paste0("FC= ",nsd.FC[6]),
+##             paste0("FC= ",nsd.FC[7])),
+##     cex=.7)
+```
+
+```{r echo=F}
+Biomarkers <- row.names(probe.group.means)
+Adequate_Performance = probe.group.means[,1]
+Intermediate_Performance = probe.group.means[,2]
+Low_Performance = probe.group.means[,3]
+FC=nsd.FC[Biomarkers]
+data <- data.frame(Biomarkers, Adequate_Performance, Intermediate_Performance, Low_Performance,FC)
+bc=col2rgb(plotcolors)/255
+
+
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~Adequate_Performance, type = 'bar', name = 'Adequate Performance',
+               marker = list(color = rgb(bc[1,1],bc[2,1],bc[3,1]),
+                           line = list(color = "black", width = 1.5)),
+               hovertext = paste("Gene :", Biomarkers,
+                                "<br>Expression :", Adequate_Performance,
+                                "<br>Fold Change :", FC))
+fig <- fig %>% add_trace(y = ~Intermediate_Performance, name = 'Intermediate Performance',
+               marker = list(color = rgb(bc[1,2],bc[2,2],bc[3,2]),
+                           line = list(color = "black", width = 1.5)),
+               hovertext = paste("Gene :", Biomarkers,
+                                "<br>Expression :", Intermediate_Performance,
+                                "<br>Fold Change :", FC))
+fig <- fig %>% add_trace(y = ~Low_Performance, name = 'Low Performance',
+               marker = list(color = rgb(bc[1,3],bc[2,3],bc[3,3]),
+                           line = list(color = "black", width = 1.5)),
+               hovertext = paste("Gene :", Biomarkers,
+                                "<br>Expression :", Low_Performance,
+                                "<br>Fold Change :", FC))
+fig <- fig %>% layout(yaxis = list(title = 'Number of transcripts detected'), 
+                      barmode = 'group')
+
+```
+
+```{r echo=F}
+
+fig
+
+```
+
+
+```{r fig.height=5, echo=F}
+
+par(mfrow=c(4,2))
+
+##cor plot data; the normalized nsd data using only the samples and genes that meet threshold requirements
+cpd=norm.nsd[pos.probe.cor,intersect(names(trait),colnames(norm.nsd))]
+##trait plot data; trait data only using samples used in nsd probe data
+tpd=trait[colnames(cpd)]
+
+i=1
+while(i<=nrow(cpd)){
+  plot(x=tpd,y=cpd[i,], pch=21,cex=2, bg="red", main=row.names(cpd)[i], 
+       xlab="Lactate mmol/L",
+       ylab="Nanostring mRNA counts",
+       cex.lab=1.5,cex.main=2,cex.axis=1.5)
+  linearmodel=lm(as.numeric(cpd[i,])~tpd)
+  abline(a=linearmodel[[1]][[1]],b=linearmodel[[1]][2],lty=2,col="black",lwd=2)
+  text(y=(max(cpd[i,])*.9),x=5,paste0("r = ",signif(cor(tpd,as.numeric(cpd[i,])),2)),cex=2)
+  i=i+1
+}
+
+##Centers and scales all samples; samples are normalized/standardized by subtracting the mean expression and dividing by the standard deviation. the z-score values represent the number of standard deviations above or below the mean that a value falls 
+allcpd=scale(t(cpd))
+gene.names=as.vector(t(matrix(rep(colnames(allcpd),9),nrow=7)))
+allcpd=data.frame(lactate=rep(tpd,7),expression=as.vector(allcpd),gene=factor(gene.names))
+plot(x=allcpd$lactate,y=allcpd$expression, pch=21,cex=2, bg="red", main="All Probes", 
+     xlab="Lactate mmol/L",
+     ylab="Nanostring mRNA counts",
+     cex.lab=1.5,cex.main=2,cex.axis=1.5,
+     ylim=c(min(allcpd$expression),max(allcpd$expression)))
+linearmodel=lm(allcpd$expression~allcpd$lactate)
+abline(a=linearmodel[[1]][[1]],b=linearmodel[[1]][2],lty=2,col="black",lwd=2)
+text(y=(max(allcpd$expression)*.9),x=5,paste0("r = ",signif(cor(allcpd$lactate,allcpd$expression),2)),cex=2)
+  
+
+```
+
+```{r echo=F}
+
+probe.group.means=data.frame(High.Performance=apply(pos.geneset[,c("FV12","LV12","FV13","LV11")],1,mean), 
+                             Intermediate.Performance=apply(pos.geneset[,c("FN11","FN12")],1,mean), 
+                             Low.Performance= apply(pos.geneset[,c("LN11","FN13","LN13")],1,mean))
+
+Function=c("FV12","LV12","FV13","LV11","FN11","FN12","LN11","FN13","LN13")
+names(Function)=c(rep("HP",4),rep("IP",2),rep("LP",3))
+pattern=pos.geneset
+i=1
+while(i<=ncol(pattern)){
+  pattern[,i]=pattern[,i]/mean(pattern[,i])
+  i=i+1
+}
+
+plot(x=1:nrow(pattern),y=pattern[,"FV12"],type="l",col="royalblue",ylim=c(min(pattern),max(pattern)),xaxt="n",ylab="Expression Relative to the Mean",xlab="")
+axis(side=1, at=1:nrow(pattern), labels=row.names(pos.geneset), cex.axis=1,las=2)
+lines(x=1:nrow(pattern),y=pattern[,"LV12"],col="royalblue")
+lines(x=1:nrow(pattern),y=pattern[,"FV13"],col="royalblue")
+lines(x=1:nrow(pattern),y=pattern[,"LV11"],col="royalblue")
+lines(x=1:nrow(pattern),y=pattern[,"LV12"],col="royalblue")
+lines(x=1:nrow(pattern),y=pattern[,"FN11"],col="gold")
+lines(x=1:nrow(pattern),y=pattern[,"FN12"],col="gold")
+lines(x=1:nrow(pattern),y=pattern[,"LN11"],col="firebrick")
+lines(x=1:nrow(pattern),y=pattern[,"FN13"],col="firebrick")
+lines(x=1:nrow(pattern),y=pattern[,"LN13"],col="firebrick")
+
+temp=prcomp(t(pos.geneset),scale=T)
+library(ggfortify)
+autoplot(temp,colour=as.numeric(factor(names(Function))))
+
+heatmaply(t(pattern),trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "none",Rowv=F,Colv=F,
+          cexRow = .75, na.value="black",
+          ##labRow = row.names(t(pos.geneset)),
+          ##labCol = c("AF1","AF2","AF3","AF4","IF1","IF2","LF1","LF2","LF3"),
+          main="Positively Correlating Genes")
+
+par(mfrow=c(2,2))
+plot(x=1:7,y=pos.geneset[,1],type="l")
+plot(x=1:7,y=pos.geneset[,2],type="l")
+plot(x=1:7,y=pos.geneset[,3],type="l")
+plot(x=1:7,y=pos.geneset[,4],type="l")
+
+par(mfrow=c(3,2))
+plot(x=1:7,y=pos.geneset[,5],type="l")
+plot(x=1:7,y=pos.geneset[,6],type="l")
+
+plot(x=1:7,y=pos.geneset[,7],type="l")
+plot(x=1:7,y=pos.geneset[,8],type="l")
+plot(x=1:7,y=pos.geneset[,9],type="l")
+
+```

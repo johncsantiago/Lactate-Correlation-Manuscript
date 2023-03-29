@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# [Return to Home Page](https://johncsantiago.github.io/Lactate-Correlation-Project.html)
+
 ```{r include = FALSE, message = FALSE}
 
 library(edgeR)
@@ -18,6 +20,23 @@ library(heatmaply)
 countdata=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_AllRawCount.csv",row.names=1)
 groups=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_metadata.csv",row.names=1)
 annot =read.csv("https://raw.githubusercontent.com/johncsantiago/SData/master/Apoptosis%20Code/AnnotationData.csv",row.names=1)
+TPM=read.csv("/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv",row.names=1)
+
+
+##library("biomaRt")
+##ensembl_list <- row.names(allcpmdata)
+##human <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+##gene_coords=getBM(attributes=c("hgnc_symbol","ensembl_gene_id", "start_position","end_position"), ##filters="ensembl_gene_id", values=ensembl_list, mart=human)
+##gene_coords$size=gene_coords$end_position - gene_coords$start_position
+##gene.lengths=gene_coords$size
+##names(gene.lengths)=gene_coords$ensembl_gene_id
+##RPKM[1,"FV11"]=(z$counts[1,"FV11"]*1000000000)/(gene.lengths[1]*z$samples["FV11","lib.size"]*z$samples["FV11","norm.factors"])
+##RPKM=(rpkm(z,gene.length=gene.lengths[row.names(z$counts)]))
+##RPKM=RPKM[gene.lengths[row.names(RPKM)]>0,]
+##TPM <- t( t(RPKM) / colSums(na.omit(RPKM)) ) * 1e6
+##TPM=na.omit(TPM)
+##allTPM=TPM
+##write.csv(na.omit(allTPM),"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv")
 
 ##normalize data
 countdata=countdata[,row.names(groups)]
@@ -64,17 +83,23 @@ cor.p=apply(cpm.0H,1,trait.cor.p)
 ```
 
 <br  /><br  /><br  />
+***Postively and Negatively Correlating Gene Figures***<br  />
+All genes with pre-perfusion expression that has >80% correlation with lactate levels observed at 3 hours of NMP and expression over 0 CPM in all libraries and over 5 TPM in at least one library.
+
+
+<br  /><br  /><br  />
 ***Figure 3A***<br  />
 Heatmap of genes that meet positive correlation with lactate criteria<br  />
 ```{r echo=F, fig.height=9, fig.width=7}
 
-cpm.cutoff=20
+cpm.cutoff=0
 cor.cutoff=0.8
 sig.cutoff=.05
 pos.or.neg="pos"
+tpm.cutoff=5
 
 ##trim for genes that meet cpm.cutoff
-cpm.genes=apply(cpm.0H,1,max)
+cpm.genes=apply(cpm.0H,1,min)
 cpm.genes=names(cpm.genes[cpm.genes>cpm.cutoff])
 
 ##trim for genes that meet sig.cutoff
@@ -89,6 +114,10 @@ if(pos.or.neg=="neg"){
 }
   
 cordata=intersect(cpm.genes,intersect(cor.genes,sig.genes))
+
+probe.tpm=apply(TPM,1,max)
+cordata=intersect(cordata,names(probe.tpm[probe.tpm>5]))
+
 
 hmdata = cpm.0H[cordata,]
 hc = hclust(dist(hmdata), "complete")
@@ -130,6 +159,7 @@ mean.line=function(mean.scaled,var.scaled){
   }
 }
 
+par(mar=c(5, 4, 4, 5))
 plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and positive correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
 axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
 
@@ -181,15 +211,18 @@ if(linearmodel[[1]][2]<0){
 }
 ```
 
+
+
 <br  /><br  /><br  />
 ***Figure 3D***<br  />
 Heatmap of genes that meet positive correlation with lactate criteria<br  />
 ```{r echo=F, fig.height=9, fig.width=7}
 
-cpm.cutoff=20
+cpm.cutoff=0
 cor.cutoff=0.8
 sig.cutoff=.05
 pos.or.neg="neg"
+tpm.cutoff=5
 
 ##trim for genes that meet cpm.cutoff
 cpm.genes=apply(cpm.0H,1,max)
@@ -207,6 +240,9 @@ if(pos.or.neg=="neg"){
 }
   
 cordata=intersect(cpm.genes,intersect(cor.genes,sig.genes))
+
+probe.tpm=apply(TPM,1,max)
+cordata=intersect(cordata,names(probe.tpm[probe.tpm>5]))
 
 hmdata = cpm.0H[cordata,]
 hc = hclust(dist(hmdata), "complete")
@@ -246,8 +282,8 @@ mean.line=function(mean.scaled,var.scaled){
     i=i+1
   }
 }
-
-plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and negative correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1.5,1.75))
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and negative correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(1.5,-1.75))
 axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
 
 i=1
@@ -263,13 +299,13 @@ mean.p=cor.test(LacData,mean.scaled)[[3]]
 
   
 par(new=T)
-plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(-5,25))
 axis(side=4)
 
 mtext("Lactate mmol/L", side = 4, line = 3)
 
 
-legend("topright",legend=c("Neg. Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("firebrick","black",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+legend("topleft",legend=c("Neg. Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
 
 ```
 
