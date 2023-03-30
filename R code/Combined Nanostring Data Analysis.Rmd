@@ -1,0 +1,679 @@
+---
+title: "Lactate Correlation Paper: Nanostring Analysis of All Data"
+author: "John Santiago"
+date: "2022-03-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+# [Return to Home Page](https://johncsantiago.github.io/Lactate-Correlation-Project.html)
+
+
+```{r echo=F, include=FALSE}
+
+library(edgeR)
+library(heatmaply)
+library(ggpubr)
+##Clean Trait Data and calculate CPMs
+countdata=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_AllRawCount.csv",row.names=1)
+groups=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_metadata.csv",row.names=1)
+annot =read.csv("https://raw.githubusercontent.com/johncsantiago/SData/master/Apoptosis%20Code/AnnotationData.csv",row.names=1)
+traitData = read.csv("/Users/johncsantiago/Documents/DetailedTraitData.csv")
+nanostringlist=read.csv("/Users/johncsantiago/Downloads/NanostringProbeList.csv",header=T)[,2]
+TPM=read.csv("/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv",row.names=1)
+##nsd=read.csv("/Users/johncsantiago/Documents/Lactate Correlation Raw Nanostring Results.csv",row.names=1)
+##nsd=nsd[,c(5:17)]
+##colnames(nsd)=substring(colnames(nsd),1,4)
+
+annot2=t(annot)
+colnames(annot2)=annot2[2,]
+norm.nsd100=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/100ng Nanostring Experiment Normalized.csv",row.names = 1)
+norm.nsd100=norm.nsd100[,c(7:18)]
+norm.nsd100[,"LN1"]=apply(norm.nsd100[,c("LN1.1","LN1.2","LN1.3")],MARGIN = 1, mean)
+norm.nsd100=norm.nsd100[,c(1:4,6:8,12:13)]
+
+
+norm.nsd300=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/300ng Nanostring Experiment Normalized Edited.csv",row.names = 1)
+norm.nsd300=norm.nsd300[,c(7:16)]
+norm.nsd300=norm.nsd300[,c(2:10)]
+colnames(norm.nsd300)=paste0(substr(colnames(norm.nsd300),1,2),substr(colnames(norm.nsd300),4,4))
+
+##Samples with unknown 3 hour lactate
+norm.nsd.uk=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/BlindLiverSamples Normalized.csv",row.names = 1)
+norm.nsd.uk=norm.nsd.uk[,c(7:18)]
+
+all.LacData=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/All3HLactate.csv",row.names=1)
+
+
+
+##normalize data
+countdata=countdata[,row.names(groups)]
+x <- countdata
+group <- factor(groups$Group)
+y <- DGEList(counts=x,group=group)
+keep <- filterByExpr(y)
+y <- y[keep,,keep.lib.sizes=FALSE]
+z <- calcNormFactors(y, method = "TMM")
+##normalized cpm
+cpmdata=cpm(z)
+allcpmdata=cpm(z)
+
+##library("biomaRt")
+##ensembl_list <- row.names(allcpmdata)
+##human <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+##gene_coords=getBM(attributes=c("hgnc_symbol","ensembl_gene_id", "start_position","end_position"), ##filters="ensembl_gene_id", values=ensembl_list, mart=human)
+##gene_coords$size=gene_coords$end_position - gene_coords$start_position
+##gene.lengths=gene_coords$size
+##names(gene.lengths)=gene_coords$ensembl_gene_id
+##RPKM[1,"FV11"]=(z$counts[1,"FV11"]*1000000000)/(gene.lengths[1]*z$samples["FV11","lib.size"]*z$samples["FV11","norm.factors"])
+##RPKM=(rpkm(z,gene.length=gene.lengths[row.names(z$counts)]))
+##RPKM=RPKM[gene.lengths[row.names(RPKM)]>0,]
+##TPM <- t( t(RPKM) / colSums(na.omit(RPKM)) ) * 1e6
+##TPM=na.omit(TPM)
+##allTPM=TPM
+##write.csv(na.omit(allTPM),"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv")
+
+##Only the 0H samples
+row.names(traitData)=traitData[,"LibraryID"]
+sample.subset=intersect(row.names(traitData),colnames(cpmdata)[substring(colnames(cpmdata),3,3)==1])
+cpmdata=cpmdata[,sample.subset]
+TPM=TPM[,sample.subset]
+traitData=traitData[sample.subset,]
+
+LacData=traitData[,"X3H.alactate"]
+names(LacData)=row.names(traitData)
+LacData=LacData[order(LacData)]
+cpmdata=cpmdata[,names(LacData)]
+cpmdata=cpmdata[apply(cpmdata,1,sum)>0,]
+##calculate correlations
+trait=LacData
+names(LacData)=paste0(substr(names(LacData),1,2),substr(names(LacData),4,4))
+
+trait.cor=function(cpm.gene.data){
+  calc.cor=cor(trait,cpm.gene.data)
+  return(calc.cor)
+}
+trait.cor.p=function(cpm.gene.data){
+  calc.cor=cor.test(trait,cpm.gene.data)
+  return(calc.cor[[3]])
+}
+
+##only genes with correlation greater than .8
+cor.genes=apply(cpmdata,1,trait.cor)
+cor.genes=na.omit(cor.genes[abs(cor.genes)>.8])
+probe.genes=cor.genes
+names(probe.genes)=annot[names(probe.genes),2]
+
+##only genes with cpm over threshold in at least one library
+probe.cpm=cpmdata[names(cor.genes),]
+probe.cpm=probe.cpm[apply(probe.cpm,1,min)>0,]
+
+##only genes with at least a 2 fold difference in expression between high and low performance livers
+probe.group.means=data.frame(High.Performance=apply(probe.cpm[,c("FV12","LV12","LV13","FV13","LV11")],1,mean), Intermediate.Performance=apply(probe.cpm[,c("FN11","FN12")],1,mean), Low.Performance= apply(probe.cpm[,c("LN11","FN13","LN13")],1,mean))
+probe.fcs=log2(probe.group.means[,"High.Performance"]/probe.group.means[,"Low.Performance"])
+names(probe.fcs)=row.names(probe.cpm)
+probe.cpm=probe.cpm[abs(probe.fcs)>1,]
+
+##only genes with at least one library with a TPM greater than 5
+probe.tpm=apply(TPM,1,max)
+probe.cpm=probe.cpm[intersect(row.names(probe.cpm),names(probe.tpm[probe.tpm>5])),]
+
+
+probe.cpm=(annot[row.names(probe.cpm),])
+row.names(probe.cpm)=probe.cpm[,2]
+probe.cpm=probe.cpm[intersect(probe.cpm[,2],nanostringlist),]
+
+
+plotcolors=c("navajowhite3","slategray3","brown2","floralwhite")
+
+temp=cpmdata[probe.cpm[,1],]
+cpm.group.means=data.frame(High.Performance=apply(temp[,c("FV12","LV12","FV13","LV11")],1,mean), 
+                             Intermediate.Performance=apply(temp[,c("FN11","FN12")],1,mean), 
+                             Low.Performance= apply(temp[,c("LN11","FN13","LN13")],1,mean))
+
+row.names(cpm.group.means)=annot[row.names(cpm.group.means),2]
+cpm.FC=signif(cpm.group.means[,"Low.Performance"]/cpm.group.means[,"High.Performance"],2)
+
+```
+
+
+
+```{r echo=F}
+
+tempdata=norm.nsd100
+NC.data=tempdata[grep("NEG",row.names(tempdata)),]
+NC.thresh=apply(NC.data,2,max)
+gene.data=(tempdata[-c(grep("NEG",row.names(tempdata)),grep("POS",row.names(tempdata))),])
+gene.data=gene.data[row.names(probe.cpm),]
+i=1
+while(i<=ncol(gene.data)){
+  gene.data[gene.data[,i]<=NC.thresh[i],i]=0
+  i=i+1
+}
+nsd.100ng=gene.data
+
+tempdata=norm.nsd300
+NC.data=tempdata[grep("NEG",row.names(tempdata)),]
+NC.thresh=apply(NC.data,2,max)
+gene.data=(tempdata[-c(grep("NEG",row.names(tempdata)),grep("POS",row.names(tempdata))),])
+gene.data=gene.data[row.names(probe.cpm),]
+i=1
+while(i<=ncol(gene.data)){
+  gene.data[gene.data[,i]<=NC.thresh[i],i]=0
+  i=i+1
+}
+nsd.300ng=gene.data
+
+tempdata=norm.nsd.uk
+NC.data=tempdata[grep("NEG",row.names(tempdata)),]
+NC.thresh=apply(NC.data,2,max)
+gene.data=(tempdata[-c(grep("NEG",row.names(tempdata)),grep("POS",row.names(tempdata))),])
+gene.data=gene.data[row.names(probe.cpm),]
+i=1
+while(i<=ncol(gene.data)){
+  gene.data[gene.data[,i]<=NC.thresh[i],i]=0
+  i=i+1
+}
+nsd.uk=gene.data
+
+nsd.100ng[,"LV3"]=nsd.uk[row.names(nsd.100ng),"LV3.100ng"]
+nsd.300ng[,"FN2"]=nsd.uk[row.names(nsd.300ng),"FN2.300ng"]
+nsd.uk=nsd.uk[,c(4:12)]
+```
+
+```{r echo=F}
+total.0=t(nsd.100ng[,1:3])
+row.names(total.0)=c("100ng","300ng","Unknown")
+i=1
+while(i<=ncol(total.0)){
+  total.0[1,i]=sum(nsd.100ng[i,]==0)
+  total.0[2,i]=sum(nsd.300ng[i,]==0)
+  total.0[3,i]=sum(nsd.uk[i,]==0)
+  i=i+1
+}
+
+Biomarkers <- colnames(total.0)
+data <- data.frame(Biomarkers = colnames(total.0),
+                   "lowRNA" = total.0[1,],
+                   "highRNA" = total.0[2,],
+                   "Unknown" = total.0[3,])
+bc=col2rgb(plotcolors)/255
+
+
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~lowRNA, type = 'bar', name = '100ng RNA',
+               marker = list(color = rgb(bc[1,2],bc[2,2],bc[3,2]),
+                           line = list(color = "black", width = 1.5)))
+fig <- fig %>% add_trace(y = ~highRNA, name = '300ng RNA',
+               marker = list(color = rgb(bc[1,3],bc[2,3],bc[3,3]),
+                           line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% add_trace(y = ~Unknown, name = 'Unknown Samples',
+               marker = list(color = rgb(bc[1,1],bc[2,1],bc[3,1]),
+                           line = list(color = "black", width = 1.5)))
+fig <- fig %>% layout(yaxis = list(title = 'Number of samples with 0 transcripts detected'), 
+                      barmode = 'group',
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = 2, y1 = 2, x0 = 0, x1 = 23, layer = "below")))
+
+zeroreads.fig=fig
+```
+
+<br /><br /><br />
+\newpage
+
+### The number of libraries that did not detect the gene
+```{r echo=F}
+
+zeroreads.fig
+  
+```
+
+
+
+
+```{r echo=F, include=F}
+
+nsd.trait.cor=function(nsd.gene.data){
+  calc.cor=cor(LacData,nsd.gene.data)
+  return(calc.cor)
+}
+
+nsd.cor100ng=apply(nsd.100ng[,names(LacData)],1,nsd.trait.cor)
+nsd.cor100ng[is.na(nsd.cor100ng)]=0
+nsd.cor300ng=apply(nsd.300ng[,names(LacData)],1,nsd.trait.cor)
+nsd.cor300ng[is.na(nsd.cor300ng)]=0
+```
+
+
+```{r echo=F}
+Biomarkers <- names(nsd.cor100ng)
+data <- data.frame(Biomarkers = colnames(total.0),
+                   "lowRNA" = nsd.cor100ng,
+                   "highRNA" = nsd.cor300ng)
+bc=col2rgb(plotcolors)/255
+
+
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~lowRNA, type = 'bar', name = '100ng RNA',
+               marker = list(color = rgb(bc[1,2],bc[2,2],bc[3,2]),
+                           line = list(color = "black", width = 1.5)))
+fig <- fig %>% add_trace(y = ~highRNA, name = '300ng RNA',
+               marker = list(color = rgb(bc[1,3],bc[2,3],bc[3,3]),
+                           line = list(color = "black", width = 1.5)))
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range=c(-1,1)), 
+                      barmode = 'group',
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = 0, x1 = 23, layer = "below"),
+                               list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = 0, x1 = 23, layer = "below")))
+
+
+
+cor.fig=fig
+
+```
+
+<br /><br /><br />
+\newpage
+
+### The correlation for each gene with lactate at 100ng and 300ng
+```{r}
+
+cor.fig
+  
+```
+
+```{r echo=F}
+
+cor.biomarkers=nsd.cor300ng[abs(nsd.cor300ng) > .8]
+##cor.biomarkers=cor.biomarkers[total.0[2,names(cor.biomarkers)]<3]
+
+normalitydata=as.data.frame(t(nsd.300ng[names(cor.biomarkers),names(LacData)]))
+
+##par(mfrow=c(2,2))
+##ggdensity(normalitydata[,1])
+##ggdensity(log(normalitydata[,1]))
+
+qqplots = F
+
+if(qqplots == T){
+  ggqqplot(normalitydata[,1])
+  ggqqplot(normalitydata[,2])
+  ggqqplot(normalitydata[,3])
+  ggqqplot(normalitydata[,4])
+  ggqqplot(normalitydata[,5])
+  ggqqplot(normalitydata[,6])
+  ggqqplot(normalitydata[,7])
+  ggqqplot(normalitydata[,8])
+  ggqqplot(normalitydata[,9])
+  ggqqplot(normalitydata[,10])
+}
+
+shapiro = data.frame(SW.Raw = rep(0,ncol(normalitydata)), 
+                     SW.Log = rep(0,ncol(normalitydata)),
+                     Cor.Raw = rep(0,ncol(normalitydata)),
+                     Cor.Log = rep(0,ncol(normalitydata)))
+row.names(shapiro)=colnames(normalitydata)
+i=1
+while(i<=ncol(normalitydata)){
+  temp=shapiro.test(normalitydata[,i])
+  shapiro[i,1]=signif(temp[[2]],3)
+  temp=shapiro.test(log(normalitydata[,i]+1))
+  shapiro[i,2]=signif(temp[[2]],3)
+  shapiro[i,3]=signif(cor(t(normalitydata)[i,],LacData),3)
+  shapiro[i,4]=signif(cor(log(t(normalitydata)[i,]+1),LacData),3)
+  i=i+1
+}
+
+
+data <- data.frame(Biomarkers = row.names(shapiro),
+                   "Raw.Data" = shapiro[,1],
+                   "Log.Data" = shapiro[,2])
+bc=col2rgb(plotcolors)/255
+
+
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~Raw.Data, type = 'bar', name = 'Raw Data',
+               marker = list(color = rgb(bc[1,2],bc[2,2],bc[3,2]),
+                           line = list(color = "black", width = 1.5)))
+fig <- fig %>% add_trace(y = ~Log.Data, name = 'Log Data',
+               marker = list(color = rgb(bc[1,3],bc[2,3],bc[3,3]),
+                           line = list(color = "black", width = 1.5)))
+fig <- fig %>% layout(yaxis = list(title = 'Shaprio-Wilk Normality test', range=c(0,.75)), 
+                      barmode = 'group',
+                      shapes = list(type = "line",
+                                    line = list(color = "black", dash = "dash"),
+                                    y0 = .05, y1 = .05, x0 = 0, x1 = 10,
+                                    layer = "below"))
+
+SW.fig=fig
+
+##SW.fig
+
+```
+
+<br /><br /><br />
+\newpage
+
+### Heatmap with data scaled by gene/row and clustered by sample/column
+```{r echo = T}
+use.log=F
+cor.biomarkers=nsd.cor300ng[abs(nsd.cor300ng) > .8]
+cor.biomarkers=cor.biomarkers[shapiro[,1]>.05|shapiro[,2]>.05]
+
+hmdata=nsd.300ng[names(cor.biomarkers),names(LacData)]
+colnames(hmdata)= paste0(c("AF-","AF-","AF-","AF-","AF-","IF-","IF-","LF-","LF-","LF-"),names(LacData))
+if(use.log==T){
+  hmdata[-grep("GPX2",row.names(hmdata)),]=
+    log(hmdata[-grep("GPX2",row.names(hmdata)),]+1)
+}
+
+
+##hmdata=cbind(hmdata,nsd.uk[names(cor.biomarkers),])
+
+
+##hmdata = log(hmdata +1)
+hmdata=t(scale(t(hmdata)))
+##hmdata=scale(hmdata)
+
+heatmaply(hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "column",Rowv=F,Colv=T,
+          cexRow = .75, na.value="black",
+          labRow = row.names(hmdata),
+          main="Positively Correlating Genes")
+
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r echo=F}
+mean.scaled=rep(0,ncol(hmdata))
+var.scaled=rep(0,ncol(hmdata))
+i=1
+while(i<=ncol(hmdata)){
+  mean.scaled[i]=mean(na.omit(hmdata[,i]))
+  var.scaled[i]=var(na.omit(hmdata[,i]))
+  i=i+1
+}
+##mean.scaled=apply(pos.nsd,2,mean)
+##var.scaled=apply(pos.nsd,2,var)
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
+axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=nrow(hmdata)){
+  lines(hmdata[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(LacData,mean.scaled)
+mean.p=cor.test(LacData,mean.scaled)[[3]]
+
+par(new=T)
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+```
+
+<br /><br /><br />
+\newpage
+
+### Multiple Linear Regression Predictive Model 
+```{r echo=F}
+
+mlm.data=t((nsd.300ng[names(cor.biomarkers),names(LacData)]))
+
+if(use.log==T){
+  mlm.data[,-grep("GPX2",colnames(mlm.data))]=
+    log(mlm.data[,-grep("GPX2",colnames(mlm.data))]+1)
+}
+
+mlm.data=cbind(mlm.data,LacData)
+mlm.data=as.data.frame(mlm.data)
+mlm.data$Predict=0
+mlm.data$Function=factor(c(rep("Adequate Function", 5),rep("Intermediate Function",2),rep("Inadequate Function",3)), levels = c("Adequate Function","Intermediate Function","Inadequate Function"))
+
+mlm=lm(LacData ~ EPHX1 + TKT + GPX2 + JUN + CYP2B6 + GSTA1 + GSTA2, 
+       data = mlm.data)
+
+summary(mlm)
+
+mlm.est=rep(0, nrow(mlm.data))
+mlm.est=rbind(LacData,mlm.est)
+i=1
+while(i<=nrow(mlm.data)){
+  test = data.frame(mlm.data[i,1:7])
+  test.predict = predict(mlm, test)
+  mlm.data$Predict[i] = test.predict
+  i=i+1
+}
+
+unknown=as.data.frame(t(nsd.uk[names(cor.biomarkers),]))
+if(use.log==T){
+  unknown[,-grep("GPX2",colnames(unknown))]=
+    log(unknown[,-grep("GPX2",colnames(unknown))]+1)
+}
+unknown$LacData=all.LacData[row.names(unknown),2]
+unknown$Predict=0
+unknown$Function = "Unknown"
+unknown=na.omit(unknown)
+i=1
+
+while(i<=nrow(unknown)){
+  test = data.frame(unknown[i,1:7])
+  test.predict = predict(mlm, test)
+  unknown$Predict[i] = test.predict
+  i=i+1
+}
+
+data <- as.data.frame((mlm.data[,8:10]))
+include.unknowns = T
+
+fig <- plot_ly(data, x = ~Predict, y = ~LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function,
+               ##marker = list(color = colorRampPalette(c("royalblue","gold","red"))(nrow(data)),
+               marker = list(color = c(rep("royalblue", 5), rep("gold",2), rep("firebrick",3)),
+                            size = 10,
+                            ##symbol = as.numeric(data$Function),
+                            line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>Function:", data$Function,
+                                "<br>3 Hour Lactate:", data$LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+if(include.unknowns == T){
+fig <- fig %>% add_trace(fig, data = unknown, x = ~Predict, y = ~LacData,
+                       type = 'scatter',
+                       mode = 'markers',
+                       name = "Unknown Samples",
+                       marker = list(color = "green",
+                             size = 10,
+                             symbol = 16,
+                             line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample :", row.names(unknown),
+                                "<br>Estimated Lactate:", signif(unknown$Predict,4)))
+}
+
+fig <- fig %>% layout(yaxis = list(title = "3H Lactate Levels"),
+                      xaxis = list(title = 'Predicted Lactate'),
+                      shapes = list(type = "line", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = 0, y1 = 20, x0 = 0, x1 = 20, 
+                                    layer = "below"),
+                      title = "Multiple Linear Regression Model")
+
+
+```
+
+<br /><br /><br />
+\newpage
+
+### Applying the predictive model to the known data
+```{r echo=F}
+
+fig
+  
+```
+<br /><br /><br />
+\newpage
+
+### Estimated 3 hour lactate levels of all samples using the predictive model
+```{r echo=F}
+
+bardata=rbind(mlm.data[,9:10],unknown[,9:10])
+bardata$Sample = row.names(bardata)
+bardata=bardata[order(bardata$Predict),]
+bardata$barcolor = c("royalblue","gold","red","darkgreen")[as.numeric(bardata$Function)]
+
+
+fig <- plot_ly(bardata, 
+               x = ~Sample, 
+               y = ~Predict, 
+               type = 'bar', 
+               color = bardata$Function,
+               colors = c("royalblue","gold","firebrick","limegreen"),
+               name = bardata$Function,
+               marker = list(line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Predicted Lactate Levels'),
+                      xaxis = list(categoryorder = "total ascending"))
+fig
+  
+```
+
+
+```{r echo=F}
+
+##bardata=nsd.300ng[names(cor.biomarkers),names(LacData)]
+##colnames(bardata)= paste0(c("AF-","AF-","AF-","AF-","AF-","IF-","IF-","LF-","LF-","LF-"),names(LacData))
+##bardata=cbind(bardata,nsd.uk[names(cor.biomarkers),])
+
+##i=6
+##data <- data.frame(Biomarkers = factor(names(bardata[i,order(as.numeric(bardata[i,]))]), levels=names(bardata[1,order(as.numeric(bardata[i,]))])),
+##                   Expression = as.numeric(bardata[i,order(as.numeric(bardata[i,]))]))
+
+
+
+##fig <- plot_ly(data, x = ~Biomarkers, y = ~Expression, type = 'bar', 
+##               name = names(cor.biomarkers[i]),
+##               marker = list(color = ##colorRampPalette(c("royalblue","gold","red"))(ncol(bardata)),
+##                             line = list(color = "black", width = 1.5)))
+
+##fig <- fig %>% layout(yaxis = list(title = 'Expression'),
+##                      title = names(cor.biomarkers[i]))
+##fig
+  
+```
+
+```{r echo=F}
+
+##cor.biomarkers=nsd.cor300ng[abs(nsd.cor300ng) > .8]
+##cor.biomarkers=cor.biomarkers[total.0[2,names(cor.biomarkers)]<3]
+
+##hmdata=nsd.uk[names(cor.biomarkers),]
+
+
+
+##hmdata = log(hmdata +1)
+##hmdata=t(scale(t(hmdata)))
+##hmdata=scale(hmdata)
+
+##heatmaply(hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+##          dendrogram = "column",Rowv=F,Colv=T,
+##          cexRow = .75, na.value="black",
+##          labRow = row.names(hmdata),
+##          main="Positively Correlating Genes")
+
+```
+
+
+```{r}
+
+ggplot(mlm.data, aes(x = EPHX1, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+ggplot(mlm.data, aes(x = TKT, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(mlm.data, aes(x = GPX2, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(mlm.data, aes(x = JUN, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(mlm.data, aes(x = CYP2B6, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(mlm.data, aes(x = GSTA1, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(mlm.data, aes(x = GSTA2, y = LacData)) +
+  geom_point() +
+  theme_minimal()
+
+```
