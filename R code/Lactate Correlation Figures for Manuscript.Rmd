@@ -1,0 +1,394 @@
+---
+title: "Figures For Lactate Correlation Manuscript"
+author: "John Santiago"
+date: "2023-05-04"
+output: 
+  bookdown::html_document2:
+    number_sections: false
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+#### [Return to Home Page](https://johncsantiago.github.io/Lactate-Correlation-Project.html)
+
+<br /><br />
+\newpage
+
+## <span style="text-decoration:underline">Table of Contents</span> 
+
+## Lactate levels in DCD livers during perfusion
+
+### Figure \@ref(fig:fig1): Plot of lactate levels in individual livers during NMP
+
+## Transcriptome correlation analysis im DCD livers
+
+### Figure \@ref(fig:fig2): Heatmap of all positively correlating genes
+
+### Figure \@ref(fig:fig3): Heatmap of all negatively correlating genes
+
+### Figure \@ref(fig:fig4): Plot of all positively correlating genes
+
+### Figure \@ref(fig:fig5): Plot of all negatively correlating genes
+
+### Figure \@ref(fig:fig6): Dot-plot of enriched GOterms in correlating genes.
+
+<br /><br /><br />
+\newpage
+
+```{r echo=F, include=FALSE}
+
+library(edgeR)
+library(heatmaply)
+library(ggpubr)
+library(performance)
+library(goseq)
+
+##Clean Trait Data and calculate CPMs
+countdata=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_AllRawCount.csv",row.names=1)
+groups=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_metadata.csv",row.names=1)
+annot =read.csv("https://raw.githubusercontent.com/johncsantiago/SData/master/Apoptosis%20Code/AnnotationData.csv",row.names=1)
+TPM=read.csv("/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv",row.names=1)
+##Liver Trait Data for all times
+LTD= read.csv("https://raw.githubusercontent.com/johncsantiago/Lactate-Correlation-Manuscript/master/Data/LiverTraitData.csv")
+
+##normalize data
+countdata=countdata[,row.names(groups)]
+x <- countdata
+group <- factor(groups$Group)
+y <- DGEList(counts=x,group=group)
+keep <- filterByExpr(y)
+y <- y[keep,,keep.lib.sizes=FALSE]
+z <- calcNormFactors(y, method = "TMM")
+##normalized cpm
+cpmdata=cpm(z)
+
+##library("biomaRt")
+##ensembl_list <- row.names(cpmdata)
+##human <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+##gene_coords=getBM(attributes=c("hgnc_symbol","ensembl_gene_id", "start_position","end_position"), filters="ensembl_gene_id", values=ensembl_list, mart=human)
+##gene_coords$size=gene_coords$end_position - gene_coords$start_position
+##gene.lengths=gene_coords$size
+##names(gene.lengths)=gene_coords$ensembl_gene_id
+##RPKM=(rpkm(z,gene.length=gene.lengths[row.names(z$counts)]))
+#### TPM = (gene RPKM/ sum of all RPKM for the sample) * 1 million
+##TPM <- t( t(RPKM) / colSums(na.omit(RPKM)) ) * 1e6
+##TPM=na.omit(TPM)
+##TPM=TPM
+##write.csv(na.omit(TPM),"/Users/johncsantiago/Documents/GitHub/Lactate-Correlation-Manuscript/Data/LacCorTpmData.csv")
+
+##FunctionalGroups
+FG=c(rep("High.Performance",5),rep("Intermediate.Performance",2),rep("Low.Performance",3))
+names(FG)=c("FV2","LV2","LV3","FV3","LV1","FN1","FN2","LN1","FN3","LN3")
+
+
+cpm.0H=cpmdata[,paste0(substr(names(FG),1,2),"1", substr(names(FG),3,3))]
+cpm.0H=cpm.0H[apply(cpm.0H,1,sum)>0,]
+
+LacData = na.omit(LTD[LTD$time == 3, c("time","libraryID","alactate")])
+row.names(LacData)=LacData$libraryID
+LacData = LacData[names(FG),"alactate"]
+names(LacData) = names(FG)
+
+trait.cor=function(gene.data){
+  calc.cor=cor.test(LacData,gene.data)
+  return(calc.cor[[4]])
+}
+
+trait.cor.p=function(gene.data){
+  calc.cor=cor.test(LacData,gene.data)
+  return(calc.cor[[3]])
+}
+
+cor.data=apply(cpm.0H,1,trait.cor)
+cor.p=apply(cpm.0H,1,trait.cor.p)
+
+```
+
+<br /><br /><br />
+\newpage
+
+## Figure 1: Lactate levels in DCD livers during perfusion.
+
+####  Lactate levels were measured in the perfusate at multiple times throughout the NMP process. 
+
+```{r fig1, warning = F, echo=F, fig.width=10, fig.cap='Lactate levels measured in 10 DCD livers during perfusion. After perfusion, each liver was determined to have high (blue), intermediate (yellow) or low (red) performance based off of their lactate levels at 3 hours of perfusion (dashed box).'}
+
+data = data.frame(Liver=rep(names(FG),7),
+                  Function=rep(FG,7))
+data = data[order(data$Liver),]
+data$Time = rep(c(.5,1,1.5,2,3,4,6),10)
+data$Lactate = NA
+
+i=1
+while(i<=nrow(data)){
+ temp = na.omit(LTD$alactate[LTD$libraryID == data$Liver[i] & 
+                               LTD$time == data$Time[i]])
+ if(length(temp>0)){
+   data$Lactate[i] = temp
+ }
+  i=i+1
+}
+
+splinedata=data.frame(Sample = rep(names(FG), 201),
+                      Color = c("royalblue","gold","firebrick")[as.factor(rep(FG, 201))],
+                      xdata = 0,
+                      ydata = 0)
+splinedata=splinedata[order(splinedata$Sample),]
+
+i=1
+while(i<=length(FG)){
+    tempdata = data[data$Liver == names(FG)[i],]
+    tempspline = spline(x = tempdata$Time,
+                        y = tempdata$Lactate,
+                        n = 201,
+                        ties = "mean",
+                        method="natural")
+    splinedata[splinedata$Sample == names(FG)[i], "xdata"] = tempspline$x
+    splinedata[splinedata$Sample == names(FG)[i], "ydata"] = tempspline$y
+    i=i+1
+}
+
+fig <- plot_ly(data, 
+             x = ~Time, 
+             y = ~Lactate,
+             name = ~Function,
+             type = 'scatter',
+             mode = 'markers',
+             color = ~Function,
+             colors = c("royalblue","gold","firebrick"),
+             marker = list(size = 10,
+                           line = list(color = "black", width = 1.5)),
+             hoverinfo = "text",
+             hovertext = paste("Sample:", data$Liver,
+                                "<br>Function:", data$Function,
+                                "<br>Perfusion Time:", data$Time,
+                                "<br>Lactate:", data$Lactate))
+
+i = 1
+while(i<=length(unique(data$Liver))){
+  templine = splinedata[splinedata$Sample == unique(data$Liver)[i],]
+fig = add_trace(fig,
+                x = templine$xdata,
+                y = templine$ydata,
+                type = 'scatter',
+                mode = 'lines',
+                inherit = FALSE,
+                showlegend = F,
+                hoverinfo = "text",
+                hovertext = paste0("Sample: ", unique(data$Liver)[i]),
+                line = list(color = templine$Color[1]))
+  i=i+1
+}
+
+fig <- fig %>% layout(yaxis = list(title = "Lactate (mmol/L)"), 
+                      xaxis = list(title = "Hours of Perfusion"),
+                      shapes = list(type = "box", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = -.5, y1 = 21, x0 = 2.75, x1 = 3.25, 
+                                    layer = "above"),
+                      title = "DCD Liver lactate levels during NMP",
+                      legend = list(x = .75, y = 1))
+
+fig
+
+```
+
+<br /><br /><br />
+\newpage
+
+## Transcriptome correlation analysis im DCD livers
+
+####  Correlation of gene expression from the transcriptomic analysis of pre-perfusion livers with lactate levels at 3 hours of perfusion. 
+
+```{r fig2, warning = F, echo=F,  fig.height=11, fig.width=7, fig.cap='Heatmap of all genes found to have expression levels in an RNAseq analysis that positively correlate with 3 hour NMP lactate levels in 10 DCD livers.'}
+
+cpm.cutoff=0
+cor.cutoff=0.8
+sig.cutoff=.05
+##pos.or.neg="pos"
+tpm.cutoff=0
+
+##trim for genes that meet cpm.cutoff
+cpm.genes=apply(cpm.0H,1,min)
+cpm.genes=names(cpm.genes[cpm.genes>cpm.cutoff])
+
+##trim for genes that meet sig.cutoff
+sig.genes=names(cor.p)[cor.p<sig.cutoff]
+  
+##trim for genes that meet the cor.cutoff in the right direction
+pos.cor.genes=names(cor.data)[cor.data>cor.cutoff]
+
+neg.cor.genes=names(cor.data)[cor.data<(-cor.cutoff)]
+  
+cordata=intersect(cpm.genes,intersect(pos.cor.genes,sig.genes))
+probe.tpm=apply(TPM,1,max)
+cordata=intersect(cordata,names(probe.tpm[probe.tpm>tpm.cutoff]))
+
+hmdata = cpm.0H[cordata,]
+hc = hclust(dist(hmdata), "complete")
+hmdata=hmdata[hc$order,]  
+pos.hmdata=t(scale(t(hmdata)))
+pos.rownames = annot[row.names(pos.hmdata),"symbol"]
+pos.hmdata = pos.hmdata[-na.action(na.omit(pos.rownames)),]
+pos.rownames = pos.rownames[-na.action(na.omit(pos.rownames))]
+
+heatmaply(pos.hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "none",Rowv=F,Colv=F,
+          cexRow = .5, na.color="grey",
+          labRow = pos.rownames,
+          labCol = c("AF1","AF2","AF3","AF4","AF5","IF1","IF2","LF1","LF2","LF3"),
+          main="Positively Correlating Genes")
+
+```
+
+```{r fig3, warning = F, echo=F,  fig.height=11, fig.width=7, fig.cap='Heatmap of all genes found to have expression levels in an RNAseq analysis that negatively correlate with 3 hour NMP lactate levels in 10 DCD livers.'}
+
+cordata=intersect(cpm.genes,intersect(neg.cor.genes,sig.genes))
+probe.tpm=apply(TPM,1,max)
+cordata=intersect(cordata,names(probe.tpm[probe.tpm>tpm.cutoff]))
+
+hmdata = cpm.0H[cordata,]
+hc = hclust(dist(hmdata), "complete")
+hmdata=hmdata[hc$order,]  
+neg.hmdata=t(scale(t(hmdata)))
+neg.rownames = annot[row.names(neg.hmdata),"symbol"]
+neg.hmdata = neg.hmdata[-na.action(na.omit(neg.rownames)),]
+neg.rownames = neg.rownames[-na.action(na.omit(neg.rownames))]
+
+heatmaply(neg.hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "none",Rowv=F,Colv=F,
+          cexRow = .5, na.color="grey",
+          labRow = neg.rownames,
+          labCol = c("AF1","AF2","AF3","AF4","AF5","IF1","IF2","LF1","LF2","LF3"),
+          main="Negatively Correlating Genes")
+
+```
+
+```{r fig4, warning = F, echo=F,  fig.height=6, fig.width=7, fig.cap='Standardized and mean standardized gene expression data for positively correlating genes compared to the lactate levels.'}
+
+hmdata=pos.hmdata
+
+mean.scaled=rep(0,ncol(hmdata))
+var.scaled=rep(0,ncol(hmdata))
+i=1
+while(i<=ncol(hmdata)){
+  mean.scaled[i]=mean(na.omit(hmdata[,i]))
+  var.scaled[i]=var(na.omit(hmdata[,i]))
+  i=i+1
+}
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
+axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=nrow(hmdata)){
+  lines(hmdata[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(LacData,mean.scaled)
+mean.p=cor.test(LacData,mean.scaled)[[3]]
+
+par(new=T)
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+
+```
+
+
+```{r fig5, warning = F, echo=F,  fig.height=6, fig.width=7, fig.cap='Standardized and mean standardized gene expression data for negatively correlating genes compared to the lactate levels.'}
+
+hmdata=neg.hmdata
+
+##Negatively correlating genes: relative expression, mean rel. expr. and lactate
+geneset=row.names(hmdata)
+mean.scaled=apply(hmdata,2,mean)
+var.scaled=apply(hmdata,2,var)
+
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and negative correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(1.5,-1.75))
+axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=length(geneset)){
+  lines(neg.hmdata[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(LacData,mean.scaled)
+mean.p=cor.test(LacData,mean.scaled)[[3]]
+
+
+  
+par(new=T)
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(-5,25))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Neg. Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+```
+
+
+```{r warning = F, echo=F,  include = F}
+
+sigs=c(neg.cor.genes,pos.cor.genes)
+bg=cpmdata[,1:2]
+bg[,1]=0
+bg[sigs,1]=1
+genes=bg[,1]
+names(genes)=row.names(bg)
+pwf=nullp(genes,"hg19","ensGene")
+GO.wall=goseq(pwf,"hg19","ensGene")
+GO.wall$adjp=p.adjust(GO.wall$over_represented_pvalue,method="BH")
+sig.GO = GO.wall[GO.wall$adjp<.05,]
+sig.GO = sig.GO[order(sig.GO$adjp, decreasing = T),]
+sig.GO$term=factor(sig.GO$term, levels = sig.GO$term)
+sig.GO$neg.log10.adjp=-log10(sig.GO$adjp)
+```
+
+```{r fig6, warning = F, echo=F,  fig.height=6, fig.width=7, fig.cap='GOterm dotplot.'}
+
+dotplot=ggplot(data=sig.GO, aes(x = numDEInCat,
+                                y = term,
+                                color = neg.log10.adjp)) +
+  geom_point(alpha = 0.9, size = 5) + 
+  scale_color_gradient(low = "blue",high = "red3", space = "Lab", name="-log10(adjp)") +
+  xlim(0, 80)
+
+
+dotplot
+
+```
+
+
+

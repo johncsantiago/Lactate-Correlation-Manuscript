@@ -90,13 +90,13 @@ All genes with pre-perfusion expression that has >80% correlation with lactate l
 <br  /><br  /><br  />
 ***Figure 3A***<br  />
 Heatmap of genes that meet positive correlation with lactate criteria<br  />
-```{r echo=F, fig.height=9, fig.width=7}
+```{r echo=F, fig.height=11, fig.width=7}
 
 cpm.cutoff=0
 cor.cutoff=0.8
 sig.cutoff=.05
 pos.or.neg="pos"
-tpm.cutoff=5
+tpm.cutoff=0
 
 ##trim for genes that meet cpm.cutoff
 cpm.genes=apply(cpm.0H,1,min)
@@ -116,18 +116,21 @@ if(pos.or.neg=="neg"){
 cordata=intersect(cpm.genes,intersect(cor.genes,sig.genes))
 
 probe.tpm=apply(TPM,1,max)
-cordata=intersect(cordata,names(probe.tpm[probe.tpm>5]))
+cordata=intersect(cordata,names(probe.tpm[probe.tpm>tpm.cutoff]))
 
 
 hmdata = cpm.0H[cordata,]
 hc = hclust(dist(hmdata), "complete")
 hmdata=hmdata[hc$order,]  
 pos.hmdata=t(scale(t(hmdata)))
+pos.rownames = annot[row.names(pos.hmdata),"symbol"]
+pos.hmdata = pos.hmdata[-na.action(na.omit(pos.rownames)),]
+pos.rownames = pos.rownames[-na.action(na.omit(pos.rownames))]
 
 heatmaply(pos.hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
           dendrogram = "none",Rowv=F,Colv=F,
-          cexRow = .75, na.color="grey",
-          labRow = annot[row.names(hmdata),"symbol"],
+          cexRow = .5, na.color="grey",
+          labRow = pos.rownames,
           labCol = c("AF1","AF2","AF3","AF4","AF5","IF1","IF2","LF1","LF2","LF3"),
           main="Positively Correlating Genes")
 

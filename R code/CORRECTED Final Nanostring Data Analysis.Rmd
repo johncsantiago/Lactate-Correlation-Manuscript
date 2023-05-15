@@ -1,0 +1,1408 @@
+---
+title: "Lactate Correlation Paper: Nanostring Analysis of All Data"
+author: "John Santiago"
+date: "2022-03-23"
+output: 
+  bookdown::html_document2:
+    number_sections: false
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+## [Return to Home Page](https://johncsantiago.github.io/Lactate-Correlation-Project.html)
+
+<br /><br />
+\newpage
+
+## <span style="text-decoration:underline">Table of Contents</span> 
+
+### Section 1: Expression analysis and model generation using original 10 samples.
+
+- #### Figure \@ref(fig:fig1): Barplot of correlation between biomarker expression and lactate levels
+
+- #### Figure \@ref(fig:fig2): Heatmap of scaled biomarker expression data
+
+- #### Figure \@ref(fig:fig3): Correlation between mean scaled biomarker expression and lactate
+
+- #### Figure \@ref(fig:fig4): Multiple linear regression predictive model 
+
+- #### Figure \@ref(fig:fig5): Checking model conditions
+
+- #### Figure \@ref(fig:fig6): Correlation between the models predicted lactate levels and donor metrics
+
+<br /><br />
+
+### Section 2: Incorporating additional samples into the predictive model.
+
+- #### Figure \@ref(fig:fig7): Incorporating the additional samples into the established model
+
+- #### Figure \@ref(fig:fig8): Correlation between the models predicted lactate levels  for all samples and donor metrics
+
+- #### Figure \@ref(fig:fig9): Expression levels of all biomarkers with lactate for all samples
+
+- #### Figure \@ref(fig:fig10): Heatmap of scaled biomarker expression data for all samples
+
+- #### Figure \@ref(fig:fig11): Correlation between mean scaled biomarker expression and lactate for all samples
+
+- #### Figure \@ref(fig:fig12): PCA using scaled biomarker data for all samples
+
+- #### Figure \@ref(fig:fig13): PCA using scaled biomarker data for the original 10 samples only
+
+- #### Figure \@ref(fig:fig14): Multiple Linear Regression Predictive Model generated using all samples
+
+- #### Figure \@ref(fig:fig15): Checking the new model conditions
+
+- #### Figure \@ref(fig:fig16): Correlation between the new models predicted lactate levels for all samples and donor metrics
+
+<br /><br />
+
+### Section 3: Additional analyses.
+
+
+- #### Figure \@ref(fig:fig17): Generating a model using genes that do not correlate with lactate.
+
+- #### Figure \@ref(fig:fig18): Correlation between gene expression and 3 hour lactate levels for DBD livers.
+
+- #### Figure \@ref(fig:fig19): Correlation between gene expression and 3 hour lactate levels for DBD and DCD livers.
+
+- #### Figure \@ref(fig:fig20): Correlation of genes that correlate with lactate in DBD livers in DBD(NS), DCD(NS), and DCD(RNAseq).
+
+- #### Figure \@ref(fig:fig21): Fold change between adequate and low functioning livers for genes that correlate with lactate in DBD livers in DBD(NS), DCD(NS), and DCD(RNAseq).
+
+- #### Figure \@ref(fig:fig22): Expression levels for genes that correlate with lactate in DBD livers in DBD(NS), DCD(NS), and DCD(RNAseq).
+
+<br /><br /><br />
+\newpage
+
+#### Summary of Section 3. 
+- #### The model using non-correlating genes is not as accurate as the model using correlating genes (Fig17). 
+- #### DBD livers do have genes that correlate with lactate in the nanostring data (Fig18 and Fig20). 
+- #### Combined data for DBD and DCD does not have correlating genes in the nanostring data (Fig19)
+- #### One of the DBD correlating genes (SERF2) has sufficient fold change (Fig21) and expression (Fig22) to act as biomarkers. 
+- #### There are significant discrepencies observed between the nanostring and RNAseq data for several of these genes in correlation (fig20) and fold change (fig21) of DCD samples.
+- #### One of the genes (NRF1) correlates (fig20), has sufficient fold change (fig21) and expression in the nanostring data but not in the RNAseq data for the DCD samples.
+- #### Generating a model using the original biomarker data from DCD samples and incorporating fwit does mildly improve the model.
+
+<br /><br /><br />
+\newpage
+
+
+
+## Section 1: Expression analysis and model generation using nanostring data.
+
+####  Expression levels of putative biomarkers identified with RNAseq were validated using a custom nanstring panel and tested for conserved correlation with 3 hour lactate levels. Genes that met the biomarker criteria in both analyses were then used to generate a multiple linear regression predictive model.
+
+```{r echo=F, include=FALSE}
+
+library(edgeR)
+library(heatmaply)
+library(ggpubr)
+library(performance)
+
+##Clean Trait Data and calculate CPMs
+countdata=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_AllRawCount.csv",row.names=1)
+groups=read.csv("/Users/johncsantiago/Documents/GitHub/SandersLab/MGH_2020/R Scripts/EdgeR/MGH_metadata.csv",row.names=1)
+annot =read.csv("https://raw.githubusercontent.com/johncsantiago/SData/master/Apoptosis%20Code/AnnotationData.csv",row.names=1)
+
+##normalize data
+countdata=countdata[,row.names(groups)]
+x <- countdata
+group <- factor(groups$Group)
+y <- DGEList(counts=x,group=group)
+keep <- filterByExpr(y)
+y <- y[keep,,keep.lib.sizes=FALSE]
+z <- calcNormFactors(y, method = "TMM")
+##normalized cpm
+cpmdata=cpm(z)
+
+
+biomarkers=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/BiomarkerIDs.csv", row.names=1)
+
+norm.nsd300=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/300ng Nanostring Experiment Normalized Edited.csv",row.names = 1)
+norm.nsd300=norm.nsd300[,c(7:16)]
+norm.nsd300=norm.nsd300[,c(2:10)]
+colnames(norm.nsd300)=paste0(substr(colnames(norm.nsd300),1,2),substr(colnames(norm.nsd300),4,4))
+
+##Samples with unknown 3 hour lactate
+norm.nsd.uk=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/NormalizedUKdata.csv",row.names = 1)
+norm.nsd.uk=norm.nsd.uk[,c(7:18)]
+colnames(norm.nsd.uk)[1]="FN2"
+
+all.nsd=cbind(norm.nsd300,norm.nsd.uk[,c(1,4,6:11)])
+norm.nsd300$FN2 = norm.nsd.uk[,1]
+
+norm.nsd.uk = norm.nsd.uk[,c(4,6:11)]
+
+all.meta=read.csv("/Users/johncsantiago/Documents/Nanostring Data Files/All3HLactate.csv",row.names=1)
+
+meta = all.meta[colnames(norm.nsd300),]
+
+all.LacData = all.meta[colnames(all.nsd),"alactate"]
+names(all.LacData)=colnames(all.nsd)
+all.LacData = na.omit(all.LacData[order(all.LacData)])
+
+LacData = meta[colnames(norm.nsd300),"alactate"]
+names(LacData) = colnames(norm.nsd300)
+LacData = na.omit(LacData[order(LacData)])
+
+HF.LacData = all.meta[colnames(all.nsd)[grep("HF",colnames(all.nsd))], "alactate"]
+names(HF.LacData) = colnames(all.nsd)[grep("HF",colnames(all.nsd))]
+HF.LacData = na.omit(HF.LacData[order(HF.LacData)])
+
+##turn measurements that are not above the highest negative control for that sample to 0s
+NC.data=all.nsd[grep("NEG",row.names(all.nsd)),]
+NC.thresh=apply(NC.data,2,max)
+gene.data=(all.nsd[-c(grep("NEG",row.names(all.nsd)),grep("POS",row.names(all.nsd))),])
+
+##trying to subtract NC from all data instead of only those that turn to 0
+temp=function(tempdata){tempdata-NC.thresh}
+tempall.nsd = t(apply(gene.data,1,temp))
+tempall.nsd = tempall.nsd[row.names(biomarkers),]
+
+##gene.data=gene.data[row.names(biomarkers),]
+i=1
+while(i<=ncol(gene.data)){
+  gene.data[gene.data[,i]<=NC.thresh[i],i]=0
+  i=i+1
+}
+all.nsd=gene.data[row.names(biomarkers),]
+
+all.nsd=tempall.nsd
+
+total.0=rep(0,nrow(all.nsd))
+names(total.0)=row.names(all.nsd)
+i=1
+while(i<=length(total.0)){
+  total.0[i]=sum(all.nsd[i,]==0)
+  i=i+1
+}
+
+all.nsd.allgenes=gene.data
+
+total.0.all=rep(0,nrow(all.nsd.allgenes))
+names(total.0.all)=row.names(all.nsd.allgenes)
+i=1
+while(i<=length(total.0.all)){
+  total.0.all[i]=sum(all.nsd.allgenes[i,]==0)
+  i=i+1
+}
+
+norm.nsd300.allgenes=all.nsd.allgenes[,colnames(norm.nsd300)]
+
+total.0.300.all=rep(0,nrow(norm.nsd300.allgenes))
+names(total.0.300.all)=row.names(norm.nsd300.allgenes)
+i=1
+while(i<=length(total.0.300.all)){
+  total.0.300.all[i]=sum(norm.nsd300.allgenes[i,]==0)
+  i=i+1
+}
+
+norm.nsd.uk=all.nsd[,colnames(norm.nsd.uk)]
+norm.nsd300=all.nsd[,colnames(norm.nsd300)]
+
+
+
+
+nsd.trait.cor=function(all.nsd){
+  calc.cor=cor(all.LacData,all.nsd)
+  return(calc.cor)
+}
+
+all.nsd.cor=na.omit(apply(all.nsd[,names(all.LacData)],1,nsd.trait.cor))
+all.nsd.allgenes.cor=na.omit(apply(all.nsd.allgenes[,names(all.LacData)],1,nsd.trait.cor))
+
+
+HF.only=all.nsd.allgenes[,names(all.LacData)[grep("HF",names(all.LacData))]]
+HF.0=rep(0,nrow(HF.only))
+names(HF.0)=row.names(HF.only)
+i=1
+while(i<=length(HF.0)){
+  HF.0[i]=sum(HF.only[i,]==0)
+  i=i+1
+}
+HF.only=HF.only[HF.0<2,]
+HF.only=HF.only[,names(HF.LacData)]
+
+nsd.trait.cor=function(HF.only){
+  calc.cor=cor(HF.LacData,HF.only)
+  return(calc.cor)
+}
+
+##Correlation of all nanostring genes with lactate using HF samples only
+nsd.cor.allgenes.HF=na.omit(apply(HF.only, 1, nsd.trait.cor))
+
+nsd.trait.cor=function(norm.nsd300){
+  calc.cor=cor(LacData,as.numeric(norm.nsd300))
+  return(calc.cor)
+}
+nsd.cor=na.omit(apply(norm.nsd300[,names(LacData)],1,nsd.trait.cor))
+
+
+OG.only=norm.nsd300.allgenes[,names(LacData)]
+OG.only=rep(0,nrow(OG.only))
+names(OG.only)=row.names(OG.only)
+i=1
+while(i<=length(HF.0)){
+  HF.0[i]=sum(HF.only[i,]==0)
+  i=i+1
+}
+
+HF.only=HF.only[HF.0<2,]
+HF.only=HF.only[,names(HF.LacData)]
+##Correlation of all nanostring genes with lactate using original 10 samples only
+nsd.cor.allgenes.300=na.omit(apply(norm.nsd300.allgenes[,names(LacData)],1,nsd.trait.cor))
+
+
+cor.biomarkers=names(nsd.cor[abs(nsd.cor) > .8])
+cor.biomarkers=cor.biomarkers[total.0[cor.biomarkers]<3]
+
+annot2=annot[,1]
+names(annot2)=annot[,2]
+
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig1, echo = F, fig.cap= 'The correlation of sufficiently expressed candidate biomarkers with 3 hour lactate levels. Genes needed to be above the negative control threshold in at least 8/10 samples to be considered. Dashed lines represent the 80% correlation threshold.'}
+
+temp.biomarkers=names(total.0[total.0 < 3])
+
+data <- data.frame(Biomarkers = temp.biomarkers,
+                   Correlation = nsd.cor[temp.biomarkers])
+data = data[order(data$Correlation),]
+data$Biomarkers=factor(data$Biomarkers, levels=data$Biomarkers)
+fig <- plot_ly(data, x = ~Biomarkers, y = ~Correlation, 
+               type = 'bar',
+               marker = list(color = colorRampPalette(c("royalblue","gold","firebrick"))(nrow(data)),
+                             line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range=c(-1,1)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 11.5, layer = "above"),
+                               list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 11.5, layer = "above")),
+                      title = "Gene expression correlation with 3H lactate levels")
+
+
+
+
+cor.fig=fig
+
+
+cor.fig
+  
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig2, echo = F, fig.cap='Heatmap with biomarker expression data scaled by gene/row and hierarchally clustered by sample/column. Functional assessment based on the 3 hour lactate levels is labeled above the columns. Data for the 7 biomarkers with sufficient expression and correlation with lactate were used from all 10 of the original liver samples.'}
+
+hmdata=norm.nsd300[cor.biomarkers,names(LacData)]
+
+hmdata=t(scale(t(hmdata)))
+
+sidecols=data.frame("Liver Function" = meta[colnames(hmdata),3])
+row.names(sidecols)=colnames(hmdata)
+
+heatmaply(hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "column",Rowv=F,Colv=T,
+          cexRow = .75, na.value="black",
+          labRow = row.names(hmdata),
+          col_side_colors = sidecols,
+          col_side_palette = c(AF="royalblue",IF="gold",LF="firebrick"))
+
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig3, echo=F, fig.cap='Mean relative expression of the geneset correlated with 3 hour lactate levels. Light grey lines are the relative expression levels of each biomarker. The black line is the mean of the relative expression levels with error bars representing the variance. The dashed red line is the lactate level observed for each sample at 3 hours of perfusion. The Pearson Correlation coefficient and p-value for the correlation between mean relative expression and lactate are listed in the legend.'}
+mean.scaled=rep(0,ncol(hmdata))
+var.scaled=rep(0,ncol(hmdata))
+i=1
+while(i<=ncol(hmdata)){
+  mean.scaled[i]=mean(na.omit(hmdata[,i]))
+  var.scaled[i]=var(na.omit(hmdata[,i]))
+  i=i+1
+}
+##mean.scaled=apply(pos.nsd,2,mean)
+##var.scaled=apply(pos.nsd,2,var)
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(LacData))),x=1:length(LacData),type="l",main="Lactate levels and correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
+axis(side=1, at=1:length(LacData), labels=names(LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=nrow(hmdata)){
+  lines(hmdata[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(LacData,mean.scaled)
+mean.p=cor.test(LacData,mean.scaled)[[3]]
+
+par(new=T)
+plot(y=LacData,x=1:length(LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig4, echo=F, fig.cap='Generating a Multiple Linear Regression Predictive Model and applying it to the observed expression levels. The model is generated by incorporating expression data from the 7 biomarker genes across the 10 original sample livers and calculating a functional relationship to the lactate levels observed in their corresponding sample. The resulting intercept and coefficients for individual gene expression levels can be used to predict lactate levels for a sample. The plot displays the relationship between the levels predicted by the model when gene expression levels observed in the original 10 sample livers are used and the actual observed levels for those livers. The dashed line represents a 1:1 relationship between obersved and predicted lactate levels.'}
+
+mlm.data=t((norm.nsd300[cor.biomarkers,names(LacData)]))
+
+mlm.data=cbind(mlm.data,LacData)
+mlm.data=as.data.frame(mlm.data)
+mlm.data$Predict=0
+mlm.data$Function=factor(c(rep("Adequate Function", 5),rep("Intermediate Function",2),rep("Inadequate Function",3)), levels = c("Adequate Function","Intermediate Function","Inadequate Function"))
+
+mlm=lm(LacData ~ EPHX1 + TKT + GPX2 + JUN + CYP2B6 + GSTA1 + GSTA2, 
+       data = mlm.data)
+
+mlm1=mlm
+
+mlm.est=rep(0, nrow(mlm.data))
+mlm.est=rbind(LacData,mlm.est)
+i=1
+while(i<=nrow(mlm.data)){
+  test = data.frame(mlm.data[i,1:7])
+  test.predict = predict(mlm, test)
+  mlm.data$Predict[i] = test.predict
+  i=i+1
+}
+
+mlm1.data=mlm.data
+
+unknown=as.data.frame(t(norm.nsd.uk[cor.biomarkers,]))
+unknown$LacData=all.LacData[row.names(unknown)]
+unknown$Predict=0
+unknown$Function = "Unknown"
+unknown=na.omit(unknown)
+i=1
+
+while(i<=nrow(unknown)){
+  test = data.frame(unknown[i,1:7])
+  test.predict = predict(mlm, test)
+  unknown$Predict[i] = test.predict
+  i=i+1
+}
+
+data <- as.data.frame((mlm.data[,8:10]))
+include.unknowns = F
+
+fig <- plot_ly(data, x = ~Predict, y = ~LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function,
+               ##marker = list(color = colorRampPalette(c("royalblue","gold","red"))(nrow(data)),
+               marker = list(color = c(rep("royalblue", 5), rep("gold",2), rep("firebrick",3)),
+                            size = 10,
+                            ##symbol = as.numeric(data$Function),
+                            line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>Function:", data$Function,
+                                "<br>3 Hour Lactate:", data$LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+if(include.unknowns == T){
+fig <- fig %>% add_trace(fig, data = unknown, x = ~Predict, y = ~LacData,
+                       type = 'scatter',
+                       mode = 'markers',
+                       name = "Unknown Samples",
+                       marker = list(color = "green",
+                             size = 10,
+                             symbol = 16,
+                             line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample :", row.names(unknown),
+                                "<br>Estimated Lactate:", signif(unknown$Predict,4)))
+}
+
+fig <- fig %>% layout(yaxis = list(title = "3H Lactate Levels"),
+                      xaxis = list(title = 'Predicted Lactate'),
+                      shapes = list(type = "line", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = 0, y1 = 20, x0 = 0, x1 = 20, 
+                                    layer = "below"),
+                      title = "Multiple Linear Regression Model")
+
+mlm1.fig = fig
+
+summary(mlm1)
+
+mlm1.fig
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig5, echo=F, fig.height= 10, fig.width= 10, fig.cap = 'Checking model conditions. These figures are used to check the quality of the model by testing specific statistical parameters that are required for reliable application.'}
+
+check_model(mlm1)
+
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig6, echo=F, fig.height=7, fig.width=7, fig.cap='The predicted lactate levels generated by the model were tested for correlation with the known donor metrics.', warning=F}
+
+cor.meta=rep(NA, ncol(meta)-5)
+names(cor.meta)=colnames(meta)[6:ncol(meta)]
+
+
+i=6
+while(i<=length(cor.meta)){
+  if(length(na.omit(meta[,i]))>6&sum(na.omit(meta[,i]))>0){
+      temp.meta=meta[,i]
+    names(temp.meta)=row.names(meta)
+    temp.meta=na.omit(temp.meta)
+    temp.predict=mlm1.data[names(temp.meta),"Predict"]
+    names(temp.predict)=names(temp.meta)
+    cor.meta[i-5]=cor(temp.meta,temp.predict)
+  }
+
+  i=i+1
+}
+cor.meta=na.omit(cor.meta)
+
+data <- data.frame(Criteria = names(cor.meta),
+                   Correlation = cor.meta)
+data = data[order(data$Correlation),]
+data$Criteria = factor(data$Criteria,levels=data$Criteria)
+
+fig <- plot_ly(data, x = ~Criteria, y = ~Correlation, 
+               type = 'bar',
+               ##color = ~Correlation,
+               ##colors = colorRamp(c("royalblue","gold","firebrick"))(201),
+               marker = list(color = colorRampPalette(c("royalblue","gold","firebrick"))(nrow(data)),line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range = c(-1,1)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = 0, x1 = 33, layer = "below"),
+                                    list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = 0, x1 = 33, layer = "below")),
+                      title = "Correlation between predicted 3H Lactate and donor traits")
+
+trait.cor.fig = fig
+
+trait.cor.fig
+
+```
+
+
+
+<br /><br /><br />
+\newpage
+
+## Section 2: Incorporating additional samples into the model.
+
+####  In order to validate the capabilities of these genes to serve as biomarkers, expression was measured in 7 additional livers with the custom nanostring panel. 
+
+<br /><br /><br />
+\newpage
+
+```{r fig7, echo=F, fig.cap='Incorporating the additional samples into the established model'}
+mlm.data=t((norm.nsd300[cor.biomarkers,names(LacData)]))
+
+mlm.data=cbind(mlm.data,LacData)
+mlm.data=as.data.frame(mlm.data)
+mlm.data$Predict=0
+mlm.data$Function=factor(c(rep("Adequate Function", 5),rep("Intermediate Function",2),rep("Inadequate Function",3)), levels = c("Adequate Function","Intermediate Function","Inadequate Function"))
+
+mlm=lm(LacData ~ EPHX1 + TKT + GPX2 + JUN + CYP2B6 + GSTA1 + GSTA2, 
+       data = mlm.data)
+
+mlm1=mlm
+
+
+i=1
+while(i<=nrow(mlm.data)){
+  test = data.frame(mlm.data[i,1:7])
+  test.predict = predict(mlm, test)
+  mlm.data$Predict[i] = test.predict
+  i=i+1
+}
+
+mlm1.data=mlm.data
+
+unknown=as.data.frame(t(norm.nsd.uk[cor.biomarkers,]))
+unknown$LacData=all.LacData[row.names(unknown)]
+unknown$Predict=0
+unknown$Function = "Unknown"
+unknown=na.omit(unknown)
+i=1
+
+while(i<=nrow(unknown)){
+  test = data.frame(unknown[i,1:7])
+  test.predict = predict(mlm, test)
+  unknown$Predict[i] = test.predict
+  i=i+1
+}
+
+data <- as.data.frame((mlm.data[,8:10]))
+
+include.unknowns = F
+
+fig <- plot_ly(data, x = ~Predict, y = ~LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function,
+               ##marker = list(color = colorRampPalette(c("royalblue","gold","red"))(nrow(data)),
+               marker = list(color = c(rep("royalblue", 5), rep("gold",2), rep("firebrick",3)),
+                            size = 10,
+                            ##symbol = as.numeric(data$Function),
+                            line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>Function:", data$Function,
+                                "<br>3 Hour Lactate:", data$LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+include.unknowns = T
+
+fig <- plot_ly(data, x = ~Predict, y = ~LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function,
+               ##marker = list(color = colorRampPalette(c("royalblue","gold","red"))(nrow(data)),
+               marker = list(color = c(rep("royalblue", 5), rep("gold",2), rep("firebrick",3)),
+                            size = 10,
+                            ##symbol = as.numeric(data$Function),
+                            line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>Function:", data$Function,
+                                "<br>3 Hour Lactate:", data$LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+if(include.unknowns == T){
+fig <- fig %>% add_trace(fig, data = unknown, x = ~Predict, y = ~LacData,
+                       type = 'scatter',
+                       mode = 'markers',
+                       name = "Additional Samples",
+                       marker = list(color = "green",
+                             size = 10,
+                             symbol = 16,
+                             line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample :", row.names(unknown),
+                                "<br>Estimated Lactate:", signif(unknown$Predict,4)))
+}
+
+fig <- fig %>% layout(yaxis = list(title = "3H Lactate Levels"),
+                      xaxis = list(title = 'Predicted Lactate'),
+                      shapes = list(type = "line", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = 0, y1 = 20, x0 = 0, x1 = 20, 
+                                    layer = "below"),
+                      title = "Multiple Linear Regression Model")
+
+mlm1.fig2 = fig
+
+mlm1.fig2
+  
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig8, echo=F, fig.height=7, fig.width=7, fig.cap='Correlation between the models predicted lactate levels and donor metrics'}
+cor.meta=rep(NA, ncol(all.meta)-5)
+names(cor.meta)=colnames(all.meta)[6:ncol(all.meta)]
+
+mlm1.predict=c(mlm1.data$Predict, unknown$Predict)
+names(mlm1.predict)=c(row.names(data),row.names(unknown))
+i=6
+while(i<=length(cor.meta)){
+  if(length(na.omit(all.meta[,i]))>11&sum(na.omit(all.meta[,i]))>0){
+      temp.meta=all.meta[names(mlm1.predict),i]
+    names(temp.meta)=names(mlm1.predict)
+    temp.meta=na.omit(temp.meta)
+    temp.predict=mlm1.predict[names(temp.meta)]
+    names(temp.predict)=names(temp.meta)
+    cor.meta[i-5]=cor(temp.meta,temp.predict)
+  }
+
+  i=i+1
+}
+cor.meta=na.omit(cor.meta)
+
+data <- data.frame(Criteria = names(cor.meta),
+                   Correlation = cor.meta)
+data = data[order(data$Correlation),]
+data$Criteria = factor(data$Criteria,levels=data$Criteria)
+
+fig <- plot_ly(data, x = ~Criteria, y = ~Correlation, 
+               type = 'bar',
+               ##color = ~Correlation,
+               ##colors = colorRamp(c("royalblue","gold","firebrick"))(201),
+               marker = list(color = colorRampPalette(c("royalblue","gold","firebrick"))(nrow(data)),line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range = c(-1,1)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 26.5, layer = "below"),
+                                    list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 26.5, layer = "below")),
+                      title = "Correlation between predicted 3H Lactate and donor traits")
+
+trait.cor.fig = fig
+
+trait.cor.fig
+
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig9, echo=F, fig.cap='Expression levels of the 23 putative biomarkers observed in all 17 samples correlated with 3 hour lactate levels. The black lines represent 80% correlation and the red represents 60% correlation'}
+data <- data.frame(Biomarkers = names(all.nsd.cor),
+                   all.nsd.cor = all.nsd.cor)
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~all.nsd.cor, type = 'bar',
+               marker = list(line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range=c(-1,1)), 
+                      shapes = list(list(type = "line", 
+                                         line = list(color = "black", dash = "dash"),
+                                         y0 = .8, y1 = .8, x0 = 0, x1 = 21, 
+                                         layer = "below"),
+                                    list(type = "line", 
+                                         line = list(color = "black", dash = "dash"),
+                                         y0 = -.8, y1 = -.8, x0 = 0, x1 = 21, 
+                                         layer = "below"),
+                                    list(type = "line", 
+                                         line = list(color = "red", dash = "dash"),
+                                         y0 = .6, y1 = .6, x0 = 0, x1 = 21, 
+                                         layer = "below")))
+
+cor.fig=fig
+
+cor.fig
+  
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig10, echo = F, fig.cap='Heatmap with data scaled by gene/row and clustered by sample/column. Functional data and DCD/DBD status is labeled above the columns'}
+
+hmdata=all.nsd[cor.biomarkers,names(all.LacData)]
+
+hmdata=t(scale(t(hmdata)))
+
+sidecols=data.frame("Liver Function" = all.meta[colnames(hmdata),3],
+                    "DCD/DBD" = all.meta[colnames(hmdata),4])
+row.names(sidecols)=colnames(hmdata)
+
+heatmaply(hmdata,trace="none",col=RdYlBu(100)[100:1], scale="none",
+          dendrogram = "column",Rowv=F,Colv=T,
+          cexRow = .75, na.value="black",
+          labRow = row.names(hmdata),
+          col_side_colors = sidecols,
+          col_side_palette = c(AF="royalblue",IF="gold",LF="firebrick",
+                               DCD="peachpuff4", DBD="khaki"))
+
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig11, echo=F, fig.cap='Mean relative expression of the geneset using all samples correlated with 3 hour lactate levels. Light grey lines are the relative expression levels of each biomarker. The black line is the mean of the relative expression levels with error bars representing the variance. The dashed red line is the lactate level observed for each sample at 3 hours of perfusion. The Pearson Correlation coefficient and p-value for the correlation between mean relative expression and lactate are listed in the legend.'}
+mean.scaled=rep(0,ncol(hmdata))
+var.scaled=rep(0,ncol(hmdata))
+i=1
+while(i<=ncol(hmdata)){
+  mean.scaled[i]=mean(na.omit(hmdata[,i]))
+  var.scaled[i]=var(na.omit(hmdata[,i]))
+  i=i+1
+}
+##mean.scaled=apply(pos.nsd,2,mean)
+##var.scaled=apply(pos.nsd,2,var)
+
+mean.line=function(mean.scaled,var.scaled){
+  lines(y=mean.scaled,x=1:length(mean.scaled),type="l",col="black",lwd=2,lty=1)
+  i=1
+  while(i<=length(var.scaled)){
+    y1=mean.scaled[i]+var.scaled[i]
+    y2=mean.scaled[i]-var.scaled[i]
+    cap1=i-.1
+    cap2=i+.1
+    lines(x=c(i,i),y=c(y1,y2),col="black")
+    lines(x=c(cap1,cap2),y=c(y1,y1),col="black")
+    lines(x=c(cap1,cap2),y=c(y2,y2),col="black")
+    i=i+1
+  }
+}
+
+par(mar=c(5, 4, 4, 5))
+plot(y=c(rep(1,length(all.LacData))),x=1:length(all.LacData),type="l",main="Lactate levels and correlating genes (relative expression)",xlab="Sample",ylab="Relative Gene Expression",xaxt="n",col=NA,lwd=2,lty=1,ylim=c(-1,1.75))
+axis(side=1, at=1:length(all.LacData), labels=names(all.LacData), cex.axis=1,las=2)
+
+i=1
+while(i<=nrow(hmdata)){
+  lines(hmdata[i,],col=alpha("lightgrey", 0.6))
+  i=i+1
+}
+
+mean.line(mean.scaled,var.scaled)
+mean.cor=cor(all.LacData,mean.scaled)
+mean.p=cor.test(all.LacData,mean.scaled)[[3]]
+
+par(new=T)
+plot(y=all.LacData,x=1:length(all.LacData),type="l",yaxt="n",xaxt="n",col="red3",lty=2,lwd=2,xlab="",ylab="",ylim=c(0,22.5))
+axis(side=4)
+
+mtext("Lactate mmol/L", side = 4, line = 3)
+
+
+legend("topleft",legend=c("Cor. Genes (mean relative expression)","3H Lactate",paste("r = ",signif(mean.cor,3),sep=""),paste("p = ",signif(mean.p,3),sep="")),col=c("black","firebrick",NA,NA),lty=c(1,1,2),bty = "n",xpd=NA,cex=.7)
+
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig12, echo=F, fig.cap='PCA using scaled data for all 17 samples'}
+
+gr=all.meta[colnames(hmdata),]
+pca <- prcomp(t(hmdata), scale.=TRUE) 
+
+eigs <- pca$sdev^2
+ve=signif(((eigs / sum(eigs))*100),4)
+pca.data=data.frame(Sample=row.names(gr),
+                    PC1=scale(pca$x[,1]),
+                    PC2=scale(pca$x[,2]),
+                    PC3=scale(pca$x[,3]),
+                    Percent1=ve[1],
+                    Percent2=ve[2],
+                    Percent3=ve[3])
+pca.data=cbind(pca.data,gr)
+
+x <- pca.data$PC1
+y <- pca.data$PC2
+z <- pca.data$PC3
+
+ggplot(pca.data, aes(x = PC1, y = PC2)) +
+        geom_point(aes(shape = Function, 
+                   colour = dcd),
+                   size  = 5,
+                   alpha = 1) +
+        labs(x=paste0("PC1 (",pca.data$Percent1[1],"%)"), 
+             y=paste0("PC2 (",pca.data$Percent2[1],"%)"))
+
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig13, echo=F, fig.cap='PCA using scaled data for the original 10 samples only'}
+
+pcadata=all.nsd[cor.biomarkers,names(LacData)]
+
+##hmdata = log(hmdata +1)
+pcadata=t(scale(t(pcadata)))
+
+gr=all.meta[colnames(pcadata),]
+pca <- prcomp(t(pcadata), scale.=TRUE) 
+
+eigs <- pca$sdev^2
+ve=signif(((eigs / sum(eigs))*100),4)
+pca.data=data.frame(Sample=row.names(gr),
+                    PC1=scale(pca$x[,1]),
+                    PC2=scale(pca$x[,2]),
+                    PC3=scale(pca$x[,3]),
+                    Percent1=ve[1],
+                    Percent2=ve[2],
+                    Percent3=ve[3])
+pca.data=cbind(pca.data,gr)
+
+x <- pca.data$PC1
+y <- pca.data$PC2
+z <- pca.data$PC3
+
+ggplot(pca.data, aes(x = PC1, y = PC2)) +
+        geom_point(aes(shape = dcd, 
+                   colour = Function),
+                   size  = 5,
+                   alpha = 1) +
+        labs(x=paste0("PC1 (",pca.data$Percent1[1],"%)"), 
+             y=paste0("PC2 (",pca.data$Percent2[1],"%)"))
+
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig14, echo=F, fig.cap='Generating a Multiple Linear Regression Predictive Model using all samples and applying it to the observed expression levels of all 17 samples'}
+
+mlm.data=t((all.nsd[(cor.biomarkers),names(all.LacData)]))
+
+
+mlm.data=cbind(mlm.data,all.LacData)
+mlm.data=as.data.frame(mlm.data)
+mlm.data$Predict=0
+mlm.data$Function=factor(all.meta[row.names(mlm.data),"Function"], levels = c("AF","IF","LF"))
+
+mlm=lm(all.LacData ~ EPHX1 + TKT + GPX2 + JUN + CYP2B6 + GSTA1 + GSTA2, 
+       data = mlm.data)
+
+
+summary(mlm)
+mlm2 = mlm
+
+i=1
+while(i<=nrow(mlm.data)){
+  test = data.frame(mlm.data[i,1:7])
+  test.predict = predict(mlm, test)
+  mlm.data$Predict[i] = test.predict
+  i=i+1
+}
+
+mlm2.data=mlm.data
+
+data <- as.data.frame((mlm.data[,8:10]))
+
+fig <- plot_ly(data, x = ~Predict, y = ~all.LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function, 
+               color = data$Function,
+               colors = c("royalblue","gold","firebrick"),
+               marker = list(size = 10,
+                             line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>3 Hour Lactate:", data$all.LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+fig <- fig %>% layout(yaxis = list(title = "3H Lactate Levels"),
+                      xaxis = list(title = 'Predicted Lactate'),
+                      shapes = list(type = "line", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = 0, y1 = 20, x0 = 0, x1 = 20, 
+                                    layer = "below"),
+                      title = "Multiple Linear Regression Model")
+
+mlm2.fig = fig
+
+mlm2.fig
+  
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig15, echo=F, fig.height= 10, fig.width= 10, fig.cap='Checking the new model conditions'}
+
+check_model(mlm2)
+
+```
+
+<br /><br /><br />
+\newpage
+
+```{r fig16, echo=F, fig.height=7, fig.width=7, fig.cap='Correlation between the new models predicted lactate levels and donor metrics'}
+all.cor.meta=rep(NA, ncol(all.meta)-5)
+names(all.cor.meta)=colnames(all.meta)[6:ncol(all.meta)]
+
+
+i=6
+while(i<=length(all.cor.meta)){
+  if(length(na.omit(all.meta[,i]))>11&sum(na.omit(all.meta[,i]))>0){
+    temp.meta=all.meta[row.names(mlm2.data),i]
+    names(temp.meta)=row.names(mlm2.data)
+    temp.meta=na.omit(temp.meta)
+    temp.predict=mlm2.data[names(temp.meta),"Predict"]
+    names(temp.predict)=names(temp.meta)
+    all.cor.meta[i-5]=cor(temp.meta,temp.predict)
+  }
+
+  i=i+1
+}
+all.cor.meta=na.omit(all.cor.meta)
+
+data <- data.frame(Criteria = names(all.cor.meta),
+                   Correlation = all.cor.meta)
+data = data[order(data$Correlation),]
+data$Criteria = factor(data$Criteria,levels=data$Criteria)
+
+fig <- plot_ly(data, x = ~Criteria, y = ~Correlation, 
+               type = 'bar',
+               ##color = ~Correlation,
+               ##colors = colorRamp(c("royalblue","gold","firebrick"))(201),
+               marker = list(color = colorRampPalette(c("royalblue","gold","firebrick"))(nrow(data)),line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range = c(-1,1)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 26.5, layer = "below"),
+                                    list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 26.5, layer = "below")),
+                      title = "Correlation between predicted 3H Lactate and donor traits")
+
+trait.cor.fig = fig
+
+trait.cor.fig
+
+```
+
+
+
+
+<br /><br /><br />
+\newpage
+
+## Section 3: Additional analyses.
+
+<br /><br /><br />
+\newpage
+
+```{r fig17, echo=F, fig.cap='Generating a model using genes that do not correlate with lactate. Uses a random set of 7 genes from the nanostring data that have sufficient expression and a positive correlation value less than .5. '}
+
+non.cor = nsd.cor.allgenes.300[nsd.cor.allgenes.300<.5
+                              &nsd.cor.allgenes.300>0
+                              &total.0.300.all[names(nsd.cor.allgenes.300)]<3]
+non.cor = non.cor[sample(1:length(non.cor),7)]
+
+non.cor
+
+mlm.data=t((norm.nsd300.allgenes[names(non.cor),names(LacData)]))
+
+
+mlm.data=cbind(mlm.data,LacData)
+mlm.data=as.data.frame(mlm.data)
+mlm.data$Predict=0
+mlm.data$Function=factor(meta[row.names(mlm.data),"Function"], levels = c("AF","IF","LF"))
+mlm.genes=colnames(mlm.data)[1:7]
+
+colnames(mlm.data)[1:7]=c("gene1","gene2","gene3","gene4","gene5","gene6","gene7")
+
+mlm=lm(LacData ~ gene1 + gene2 + gene3 + gene4 + gene5 + gene6 + gene7, 
+       data = mlm.data)
+
+####Equation Summary
+summary(mlm)
+mlm.noncor = mlm
+
+i=1
+while(i<=nrow(mlm.data)){
+  test = data.frame(mlm.data[i,1:7])
+  test.predict = predict(mlm, test)
+  mlm.data$Predict[i] = test.predict
+  i=i+1
+}
+
+mlm.noncor.data=mlm.data
+
+data <- as.data.frame((mlm.data[,8:10]))
+
+fig <- plot_ly(data, x = ~Predict, y = ~LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function, 
+               color = data$Function,
+               colors = c("royalblue","gold","firebrick"),
+               marker = list(size = 10,
+                             line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>3 Hour Lactate:", data$LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+fig <- fig %>% layout(yaxis = list(title = "3H Lactate Levels"),
+                      xaxis = list(title = 'Predicted Lactate'),
+                      shapes = list(type = "line", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = 0, y1 = 20, x0 = 0, x1 = 20, 
+                                    layer = "below"),
+                      title = "Multiple Linear Regression Model")
+
+mlm.noncor.fig = fig
+
+mlm.noncor.fig
+  
+```
+
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig18, fig.height= 7, fig.width = 7, echo = F, fig.cap= 'The correlation of sufficiently expressed genes detected in the nanostring custom panel with 3 hour lactate levels in DBD livers. Genes needed to be above the negative control threshold in at least 8/10 samples to be considered. Dashed lines represent the 80% correlation threshold.'}
+
+data <- data.frame(Biomarkers = row.names(HF.only),
+                   Correlation = nsd.cor.allgenes.HF[row.names(HF.only)])
+data = na.omit(data[order(data$Correlation),])
+data$Biomarkers=factor(data$Biomarkers, levels=data$Biomarkers)
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~Correlation, 
+               type = 'bar',
+               marker = list(color = colorRampPalette(c("royalblue","gold","firebrick"))(nrow(data)),
+                             line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range=c(-1,1)),
+                      xaxis = list(tickfont = list(size = 7)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 52.5, layer = "above"),
+                               list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 52.5, layer = "above")),
+                      title = "Gene expression correlation with 3H lactate \nlevels in DBD livers")
+
+
+
+
+HF.cor.fig=fig
+
+HF.cor.fig
+  
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig19, fig.height= 7, fig.width = 7, echo = F, fig.cap= 'The correlation of sufficiently expressed genes detected in the nanostring custom panel with 3 hour lactate levels in DBD and DCD livers. Genes needed to be above the negative control threshold in at least 8/10 samples to be considered. Dashed lines represent the 80% correlation threshold.'}
+
+data <- data.frame(Biomarkers = row.names(all.nsd.allgenes),
+                   Correlation = all.nsd.allgenes.cor[row.names(all.nsd.allgenes)])
+data = na.omit(data[order(data$Correlation),])
+data$Biomarkers=factor(data$Biomarkers, levels=data$Biomarkers)
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~Correlation, 
+               type = 'bar',
+               marker = list(color = colorRampPalette(c("royalblue","gold","firebrick"))(nrow(data)),
+                             line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range=c(-1,1)),
+                      xaxis = list(tickfont = list(size = 7)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 63, layer = "above"),
+                               list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 63, layer = "above")),
+                      title = "Gene expression correlation with 3H lactate \nlevels in DBD and DCD livers")
+
+
+
+
+HF.cor.fig=fig
+
+HF.cor.fig
+  
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig20, fig.height= 7, fig.width = 7, echo = F, fig.cap= 'Showing only those with at least 80% correlation in the DBD livers. Note: NRF1 was not used in the original analysis of DCD livers since there was a low correlation between the Lactade data and RNAseq data.'}
+
+
+data <- data.frame(Biomarkers = row.names(HF.only),
+                   DBD.Correlation = nsd.cor.allgenes.HF[row.names(HF.only)])
+data=data[abs(data$DBD.Correlation)>.8,]
+data = data[order(data$DBD.Correlation),]
+data$Biomarkers=factor(data$Biomarkers, levels=data$Biomarkers)
+data$DCD.Correlation=nsd.cor.allgenes.300[as.character(data$Biomarkers)]
+data=na.omit(data)
+
+temp.lacnames=names(LacData)
+temp.lacnames=paste0(substr(temp.lacnames,1,2),"1",substr(temp.lacnames,3,3))
+CPM.biomarkers=cpmdata[annot2[as.character(data$Biomarkers)],temp.lacnames]
+CPM.cor=rep(0,nrow(data))
+names(CPM.cor)=as.character(data$Biomarkers)
+i=1
+while(i<=nrow(CPM.biomarkers)){
+  CPM.cor[i]=cor(LacData, CPM.biomarkers[i,]) 
+  i=i+1
+}
+
+data$CPM.Correlation=CPM.cor
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~DBD.Correlation, 
+               type = 'bar',
+               name = "DBD Samples (NS)",
+               marker = list(color =c("royalblue"),
+                             line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% add_trace(y = ~DCD.Correlation, name = 'DCD Samples (NS)',
+               marker = list(color = c("firebrick"),
+                           line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% add_trace(y = ~CPM.Correlation, name = 'CPM Data (RNAseq)',
+               marker = list(color = c("gold"),
+                           line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'Correlation', range=c(-1,1)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 1.5, layer = "above"),
+                               list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 1.5, layer = "above")),
+                      title = "Correlation with 3H lactate levels in DBD and DCD Livers")
+
+
+
+
+HF.cor.fig2=fig
+
+
+HF.cor.fig2
+  
+```
+
+
+
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig21, fig.height= 7, fig.width = 7, echo = F, fig.cap= 'Showing the fold change between adequate and low functioning livers for those genes with at least 80% correlation. Note: NRF1 was not used in the original analysis of DCD livers since there was a low correlation between the Lactade data and RNAseq data.'}
+
+
+data <- data.frame(Biomarkers = row.names(HF.only),
+                   Correlation = nsd.cor.allgenes.HF[row.names(HF.only)])
+data=na.omit(HF.only[data[abs(data$Correlation)>.8,"Biomarkers"],])
+
+data$FC=log2(apply(data[,6:7],MARGIN = 1,mean)/apply(data[,1:5],MARGIN = 1,mean))
+data=data[order(data$FC),]
+
+
+data300=norm.nsd300.allgenes[row.names(data),]
+FC.data300=log2((apply(data300[,meta[colnames(data300),"Function"]=="LF"],MARGIN = 1,sum)/
+                  (3-apply(data300[,meta[colnames(data300),"Function"]=="LF"]==0,MARGIN = 1, sum)))/
+                  (apply(data300[,meta[colnames(data300),"Function"]=="AF"],MARGIN = 1,sum)/
+                  (5-apply(data300[,meta[colnames(data300),"Function"]=="AF"]==0,MARGIN = 1, sum))))
+
+FC.data300=log2(apply(data300[,meta[colnames(data300),"Function"]=="LF"],MARGIN = 1,mean)/apply(data300[,meta[colnames(data300),"Function"]=="AF"],MARGIN = 1,mean))
+
+temp.lacnames=names(LacData)
+temp.lacnames=paste0(substr(temp.lacnames,1,2),"1",substr(temp.lacnames,3,3))
+CPM.biomarkers=cpmdata[annot2[row.names(data)],temp.lacnames]
+colnames(CPM.biomarkers)=paste0(substr(temp.lacnames,1,2),substr(temp.lacnames,4,4))
+FC.cpm=log2(apply(CPM.biomarkers[,meta[colnames(CPM.biomarkers),"Function"]=="LF"],MARGIN = 1,mean)/
+            apply(CPM.biomarkers[,meta[colnames(CPM.biomarkers),"Function"]=="AF"],MARGIN = 1,mean))
+
+data=data.frame(Biomarkers = row.names(data),
+                DBD.FC = data$FC, 
+                DCD.FC=FC.data300,
+                CPM.FC = FC.cpm)
+
+
+
+data$Biomarkers=factor(data$Biomarkers, levels=c("NRF1","SERF2"))
+
+
+fig <- plot_ly(data, x = ~Biomarkers, y = ~DBD.FC, 
+               type = 'bar',
+               name = "DBD Samples",
+               marker = list(color =c("royalblue"),
+                             line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% add_trace(y = ~DCD.FC, name = 'DCD Samples',
+               marker = list(color = c("firebrick"),
+                           line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% add_trace(y = ~CPM.FC, name = 'CPM Data',
+               marker = list(color = c("gold"),
+                           line = list(color = "black", width = 1.5)))
+
+fig <- fig %>% layout(yaxis = list(title = 'log2(Fold Change)', range=c(-1.1,2.7)),
+                      shapes = list(list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = .8, y1 = .8, x0 = -.5, x1 = 1.5, layer = "above"),
+                               list(type = "line", line = list(color = "black", dash = "dash"), 
+                                    y0 = -.8, y1 = -.8, x0 = -.5, x1 = 1.5, layer = "above")),
+                      title = "Fold Change for genes with expression that correlates\nwith 3H lactate levels in DBD and DCD Livers")
+
+
+HF.FC.fig=fig
+
+
+HF.FC.fig
+  
+```
+
+
+
+
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig22, fig.height= 7, fig.width = 7, echo = F, fig.cap= 'Showing the expression leves for those genes with at least 80% correlation.'}
+
+
+data.HF <- data.frame(Biomarkers = row.names(HF.only),
+                   Correlation = nsd.cor.allgenes.HF[row.names(HF.only)])
+data.HF=(na.omit(HF.only[data.HF[abs(data.HF$Correlation)>.8,"Biomarkers"],]))
+data.HF=data.HF[,names(HF.LacData)[order(HF.LacData)]]
+data.HF=log2(data.HF)
+
+data.300=(norm.nsd300.allgenes[row.names(data.HF),])
+data.300=data.300[,names(LacData)[order(LacData)]]
+data.300=log2(data.300)
+
+temp.lacnames=names(LacData)
+temp.lacnames=paste0(substr(temp.lacnames,1,2),"1",substr(temp.lacnames,3,3))
+CPM.biomarkers=cpmdata[annot2[row.names(data.300)],temp.lacnames]
+colnames(CPM.biomarkers)=paste0(substr(temp.lacnames,1,2),substr(temp.lacnames,4,4))
+row.names(CPM.biomarkers)=annot[row.names(CPM.biomarkers),"symbol"]
+CPM.biomarkers=(CPM.biomarkers)
+CPM.biomarkers=CPM.biomarkers[,names(LacData)[order(LacData)]]
+data.CPM=log2(CPM.biomarkers)
+
+data=data.HF
+fig <- plot_ly(x = row.names(data), y = data[,1], 
+               type = 'bar',
+               name = colnames(data)[1], showlegend = F,
+               marker = list(color =c("royalblue","darkgreen","gold","firebrick"),
+                             line = list(color = "black", width = 1.5)))
+i=1
+while(i<=ncol(data)){
+fig <- fig %>% add_trace(y = data[,i], name = colnames(data)[i], showlegend = F,
+               marker = list(color = c("royalblue","darkgreen","gold","firebrick"),
+                           line = list(color = "black", width = 1.5)))
+i=i+1
+}
+
+fig <- fig %>% layout(yaxis = list(title = 'log2(gene expression)'),
+                      title = "Nanostring gene expression in DBD Livers")
+
+fig.HF=fig
+
+data=data.300
+fig <- plot_ly(x = row.names(data), y = data[,1], 
+               type = 'bar',
+               name = colnames(data)[1], showlegend = F,
+               marker = list(color =c("royalblue","darkgreen","gold","firebrick"),
+                             line = list(color = "black", width = 1.5)))
+i=1
+while(i<=ncol(data)){
+fig <- fig %>% add_trace(y = data[,i], name = colnames(data)[i], showlegend = F,
+               marker = list(color = c("royalblue","darkgreen","gold","firebrick"),
+                           line = list(color = "black", width = 1.5)))
+i=i+1
+}
+
+fig <- fig %>% layout(yaxis = list(title = 'log2(gene expression)'),
+                      title = "Nanostring gene expression in DCD Livers")
+
+fig.300=fig
+
+
+data=data.CPM
+fig <- plot_ly(x = row.names(data), y = data[,1], 
+               type = 'bar',
+               name = colnames(data)[1], showlegend = F,
+               marker = list(color =c("royalblue","darkgreen","gold","firebrick"),
+                             line = list(color = "black", width = 1.5)))
+i=1
+while(i<=ncol(data)){
+fig <- fig %>% add_trace(y = data[,i], name = colnames(data)[i], showlegend = F,
+               marker = list(color = c("royalblue","darkgreen","gold","firebrick"),
+                           line = list(color = "black", width = 1.5)))
+i=i+1
+}
+
+fig <- fig %>% layout(yaxis = list(title = 'log2(gene expression)'),
+                      title = "RNAseq gene expression in DCD Livers")
+
+fig.CPM=fig
+
+par(mfrow=c(3,1))
+fig.HF
+fig.300
+fig.CPM
+  
+```
+
+
+<br /><br /><br />
+\newpage
+
+```{r fig23, echo=F, fig.cap='Generating a model using the original biomarkers and incorporating wit. '}
+
+
+mlm.data=t((all.nsd[(cor.biomarkers),names(all.LacData)]))
+fwit=all.meta[row.names(mlm.data),"fwit"]
+mlm.data=cbind(mlm.data,fwit)
+mlm.data=cbind(mlm.data,all.LacData)
+mlm.data=as.data.frame(mlm.data)
+
+mlm.data$Predict=0
+mlm.data$Function=factor(all.meta[row.names(mlm.data),"Function"], levels = c("AF","IF","LF"))
+mlm=lm(all.LacData ~ EPHX1 + TKT + GPX2 + JUN + CYP2B6 + GSTA1 + GSTA2 + fwit, 
+       data = mlm.data)
+
+
+summary(mlm)
+mlm3 = mlm
+
+i=1
+while(i<=nrow(mlm.data)){
+  test = data.frame(mlm.data[i,1:8])
+  test.predict = predict(mlm, test)
+  mlm.data$Predict[i] = test.predict
+  i=i+1
+}
+
+mlm3.data=mlm.data
+
+data <- as.data.frame((mlm.data[,9:11]))
+
+fig <- plot_ly(data, x = ~Predict, y = ~all.LacData, type = 'scatter', 
+               mode = 'markers',
+               name = data$Function, 
+               color = data$Function,
+               colors = c("royalblue","gold","firebrick"),
+               marker = list(size = 10,
+                             line = list(color = "black", width = 1.5)),
+               hoverinfo = "text",
+               hovertext = paste("Sample:", row.names(data),
+                                "<br>3 Hour Lactate:", data$all.LacData,
+                                "<br>Estimated Lactate:", signif(data$Predict,4)))
+
+fig <- fig %>% layout(yaxis = list(title = "3H Lactate Levels"),
+                      xaxis = list(title = 'Predicted Lactate'),
+                      shapes = list(type = "line", 
+                                    line = list(color = "black", dash = "dash"), 
+                                    y0 = 0, y1 = 20, x0 = 0, x1 = 20, 
+                                    layer = "below"),
+                      title = "Multiple Linear Regression Model")
+
+mlm2.fig = fig
+
+mlm2.fig
+  
+```
